@@ -100,7 +100,8 @@ export function TakeMedicationScreen({ navigation, route }: Props) {
         currentElderly.id,
         medicationId,
         takenBy,
-        notes || undefined
+        notes || undefined,
+        dosageTaken || undefined
       );
 
       if (success) {

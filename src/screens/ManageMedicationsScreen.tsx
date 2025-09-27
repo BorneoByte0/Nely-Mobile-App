@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -21,14 +21,41 @@ export function ManageMedicationsScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const { showAlert, alertConfig, hideAlert, showError, showSuccess } = useModernAlert();
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   // Database hooks
-  const { elderlyProfiles, loading: profilesLoading } = useElderlyProfiles();
+  const { elderlyProfiles, loading: profilesLoading, refetch: refetchProfiles } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
-  const { medications, loading: medicationsLoading, error: medicationsError } = useMedications(currentElderly?.id || '');
+  const { medications, loading: medicationsLoading, error: medicationsError, refetch: refetchMedications } = useMedications(currentElderly?.id || '');
   const { updateMedication, loading: updateLoading } = useUpdateMedication();
 
   const isLoading = profilesLoading || medicationsLoading;
+
+  // Pull-to-refresh function
+  const onRefresh = async () => {
+    console.log('🔄 ManageMedicationsScreen: Starting refresh...');
+    setRefreshing(true);
+    hapticFeedback.selection(); // Provide haptic feedback for refresh
+
+    try {
+      // Refetch both elderly profiles and medications in parallel
+      await Promise.all([
+        refetchProfiles(),
+        refetchMedications()
+      ]);
+      console.log('✅ ManageMedicationsScreen: Refresh completed successfully');
+    } catch (error) {
+      console.error('❌ ManageMedicationsScreen: Refresh failed:', error);
+      showError(
+        language === 'en' ? 'Refresh Failed' : 'Gagal Muat Semula',
+        language === 'en'
+          ? 'Unable to refresh data. Please try again.'
+          : 'Tidak dapat memuat semula data. Sila cuba lagi.'
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -48,7 +75,7 @@ export function ManageMedicationsScreen({ navigation }: Props) {
         <ErrorState
           type="data"
           message={medicationsError}
-          onRetry={() => window.location.reload()}
+          onRetry={onRefresh}
         />
       </SafeAreaWrapper>
     );
@@ -71,7 +98,8 @@ export function ManageMedicationsScreen({ navigation }: Props) {
             ? 'Medication status updated successfully!'
             : 'Status ubat berjaya dikemaskini!'
         );
-        // Refresh will happen automatically via the medications hook
+        // Manually refetch to ensure latest data
+        refetchMedications();
       } else {
         throw new Error('Failed to update medication status');
       }
@@ -86,54 +114,6 @@ export function ManageMedicationsScreen({ navigation }: Props) {
     }
   };
 
-  const deleteMedication = (medicationId: string, medicationName: string) => {
-    showAlert({
-      type: 'warning',
-      title: language === 'en' ? 'Delete Medication' : 'Hapus Ubat',
-      message: language === 'en'
-        ? `Are you sure you want to delete ${medicationName}?`
-        : `Adakah anda pasti untuk menghapus ${medicationName}?`,
-      buttons: [
-        {
-          text: language === 'en' ? 'No' : 'Tidak',
-          style: 'destructive',
-          onPress: () => hideAlert(),
-        },
-        {
-          text: language === 'en' ? 'Yes' : 'Ya',
-          style: 'primary',
-          onPress: async () => {
-            hideAlert();
-            try {
-              const success = await updateMedication(medicationId, {
-                isActive: false
-              });
-
-              if (success) {
-                hapticFeedback.success();
-                showSuccess(
-                  language === 'en' ? 'Deleted' : 'Dihapus',
-                  language === 'en'
-                    ? 'Medication deleted successfully!'
-                    : 'Ubat berjaya dihapus!'
-                );
-              } else {
-                throw new Error('Failed to delete medication');
-              }
-            } catch (error) {
-              hapticFeedback.error();
-              showError(
-                language === 'en' ? 'Delete Failed' : 'Gagal Hapus',
-                language === 'en'
-                  ? 'Unable to delete medication. Please try again.'
-                  : 'Tidak dapat menghapus ubat. Sila cuba lagi.'
-              );
-            }
-          },
-        },
-      ],
-    });
-  };
 
   const filterOptions = [
     { key: 'all', labelEn: 'All', labelMs: 'Semua' },
@@ -185,7 +165,19 @@ export function ManageMedicationsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaWrapper gradientVariant="family" includeTabBarPadding={true}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+            title={language === 'en' ? 'Refreshing medications...' : 'Memuat semula ubat-ubatan...'}
+            titleColor={colors.textSecondary}
+          />
+        }
+      >
         {/* Modern Gradient Header */}
         <LinearGradient
           colors={[colors.primary, colors.secondary]}
@@ -376,19 +368,6 @@ export function ManageMedicationsScreen({ navigation }: Props) {
                       </View>
                     </InteractiveFeedback>
                   )}
-                  
-                  <InteractiveFeedback
-                    onPress={() => deleteMedication(medication.id, medication.name)}
-                    feedbackType="scale"
-                    hapticType="heavy"
-                  >
-                    <View style={[styles.actionButton, styles.deleteButton]}>
-                      <Ionicons name="trash-outline" size={16} color={colors.error} />
-                      <Text style={styles.deleteButtonText}>
-                        {language === 'en' ? 'Delete' : 'Hapus'}
-                      </Text>
-                    </View>
-                  </InteractiveFeedback>
                 </View>
               </View>
             </View>
@@ -598,13 +577,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.primary,
   },
-  deleteButton: {
-    backgroundColor: colors.errorAlpha,
+  disabledButton: {
+    opacity: 0.5,
   },
-  deleteButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.error,
+  disabledText: {
+    color: colors.textMuted,
   },
   bottomPadding: {
     height: 24,

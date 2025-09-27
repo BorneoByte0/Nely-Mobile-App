@@ -37,7 +37,7 @@ CREATE TABLE users (
   name TEXT NOT NULL,
   email TEXT NOT NULL,
   phone TEXT,
-  role TEXT NOT NULL CHECK (role IN ('elderly', 'caregiver')),
+  role TEXT NOT NULL CHECK (role IN ('elderly', 'not elderly')),
   preferred_language TEXT DEFAULT 'en' CHECK (preferred_language IN ('en', 'ms')),
   avatar TEXT,
   is_active BOOLEAN DEFAULT true,

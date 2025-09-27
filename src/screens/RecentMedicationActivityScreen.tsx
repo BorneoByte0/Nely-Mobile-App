@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -29,13 +29,32 @@ interface MedicationActivity {
 export function RecentMedicationActivityScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'today' | 'week'>('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   // Database hooks
-  const { elderlyProfiles, loading: profilesLoading, error: profilesError } = useElderlyProfiles();
+  const { elderlyProfiles, loading: profilesLoading, error: profilesError, refetch: refetchProfiles } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
-  const { medicationTaken, loading: medicationTakenLoading, error: medicationTakenError } = useMedicationTaken(currentElderly?.id || '');
+  const { medicationTaken, loading: medicationTakenLoading, error: medicationTakenError, refetch: refetchMedicationTaken } = useMedicationTaken(currentElderly?.id || '');
 
   const isLoading = profilesLoading || medicationTakenLoading;
+
+  // Pull to refresh function
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      hapticFeedback.light();
+
+      // Refetch all data
+      await Promise.all([
+        refetchProfiles && refetchProfiles(),
+        refetchMedicationTaken && refetchMedicationTaken()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing medication activity:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Mock recent medication activity data
   const recentActivity: MedicationActivity[] = [
@@ -143,12 +162,12 @@ export function RecentMedicationActivityScreen({ navigation }: Props) {
   // Use database data if available, otherwise fall back to mock data
   const displayActivity = medicationTaken.length > 0 ? medicationTaken.map(item => ({
     id: item.id || '',
-    medicationName: item.medicationName || item.medication_name || '',
-    dosage: item.dosage || '',
-    timeTaken: item.timeTaken ? new Date(item.timeTaken || item.taken_at || '').toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '',
-    dateTaken: item.takenAt || item.taken_at || '',
+    medicationName: item.medications?.name || '',
+    dosage: item.dosage_taken || item.medications?.dosage || '',
+    timeTaken: item.taken_at ? new Date(item.taken_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '',
+    dateTaken: item.taken_at || '',
     notes: item.notes || '',
-    takenBy: item.recordedBy || item.recorded_by || '',
+    takenBy: item.taken_by || '',
     status: 'taken' as const, // Database entries are assumed to be taken
   })) : recentActivity;
 
@@ -192,7 +211,18 @@ export function RecentMedicationActivityScreen({ navigation }: Props) {
 
   return (
     <SafeAreaWrapper gradientVariant="family" includeTabBarPadding={true}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            title={language === 'en' ? 'Pull to refresh' : 'Tarik untuk muat semula'}
+            titleColor={colors.textSecondary}
+          />
+        }
+      >
         {/* Modern Gradient Header */}
         <LinearGradient
           colors={[colors.info, colors.primary]}

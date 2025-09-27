@@ -44,7 +44,7 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
         console.log('Creating user profile for boarding...');
         await createUserProfile({
           name: user.email?.split('@')[0] || 'User',
-          role: 'caregiver',
+          role: 'not elderly',
           language: language,
         });
       }

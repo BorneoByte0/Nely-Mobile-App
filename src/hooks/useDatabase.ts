@@ -35,6 +35,14 @@ export const useElderlyProfiles = () => {
           currentMedications: [], // Will be populated separately
           emergencyContact: profile.emergency_contact || '',
           dateCreated: profile.date_created,
+          // Physical information
+          weight: profile.weight || undefined,
+          height: profile.height || undefined,
+          bloodType: profile.blood_type || undefined,
+          // Contact & emergency
+          doctorName: profile.doctor_name || undefined,
+          clinicName: profile.clinic_name || undefined,
+          emergencyContactPhone: profile.emergency_contact_phone || undefined,
         }));
         setElderlyProfiles(profiles);
       }
@@ -82,29 +90,78 @@ export const useVitalSigns = (elderlyId: string) => {
       } else if (data && data.length > 0) {
         const vital = data[0];
         // Transform database data to match frontend types
+        // Helper function to calculate vital sign status
+        const calculateBloodPressureStatus = (systolic: number, diastolic: number) => {
+          if (systolic === 0 || diastolic === 0) return 'normal'; // No reading yet
+          if (systolic >= 180 || diastolic >= 110) return 'critical';
+          if (systolic >= 140 || diastolic >= 90) return 'concerning';
+          if (systolic < 90 || diastolic < 60) return 'concerning';
+          return 'normal';
+        };
+
+        const calculateSpO2Status = (value: number) => {
+          if (value === 0) return 'normal'; // No reading yet
+          if (value < 90) return 'critical';
+          if (value < 95) return 'concerning';
+          return 'normal';
+        };
+
+        const calculatePulseStatus = (value: number) => {
+          if (value === 0) return 'normal'; // No reading yet
+          if (value < 50 || value > 120) return 'critical';
+          if (value < 60 || value > 100) return 'concerning';
+          return 'normal';
+        };
+
+        const calculateBloodGlucoseStatus = (value: number, testType: string) => {
+          if (value === 0) return 'normal'; // No reading yet
+          if (testType === 'fasting') {
+            if (value < 3.9 || value > 10.0) return 'critical';
+            if (value > 7.0) return 'concerning';
+          } else {
+            if (value < 3.9 || value > 15.0) return 'critical';
+            if (value > 11.1) return 'concerning';
+          }
+          return 'normal';
+        };
+
+        const calculateTemperatureStatus = (value: number) => {
+          if (value === 0 || value === 36.5) return 'normal'; // No reading yet or default value
+          if (value >= 39.5 || value <= 35.0) return 'critical'; // High fever or severe hypothermia
+          if (value >= 38.0 || value <= 35.5) return 'concerning'; // Fever or mild hypothermia
+          return 'normal';
+        };
+
+        const systolic = vital.systolic || 0;
+        const diastolic = vital.diastolic || 0;
+        const spo2 = vital.spo2 || 0;
+        const pulse = vital.pulse || 0;
+        const bloodGlucose = vital.blood_glucose || 0;
+        const temperature = vital.temperature || 36.5;
+
         const vitalSigns: VitalSigns = {
           id: vital.id,
           elderlyId: vital.elderly_id,
           bloodPressure: {
-            systolic: vital.systolic || 0,
-            diastolic: vital.diastolic || 0,
-            status: 'normal', // Will be calculated based on values
+            systolic,
+            diastolic,
+            status: calculateBloodPressureStatus(systolic, diastolic),
           },
           spO2: {
-            value: vital.spo2 || 0,
-            status: 'normal',
+            value: spo2,
+            status: calculateSpO2Status(spo2),
           },
           pulse: {
-            value: vital.pulse || 0,
-            status: 'normal',
+            value: pulse,
+            status: calculatePulseStatus(pulse),
           },
           respiratoryRate: {
             value: 18, // Default value
             status: 'normal',
           },
           temperature: {
-            value: vital.temperature || 36.5,
-            status: 'normal',
+            value: temperature,
+            status: calculateTemperatureStatus(temperature),
           },
           weight: vital.weight ? {
             value: vital.weight,
@@ -112,9 +169,9 @@ export const useVitalSigns = (elderlyId: string) => {
             status: 'normal',
           } : undefined,
           bloodGlucose: vital.blood_glucose ? {
-            value: vital.blood_glucose,
+            value: bloodGlucose,
             unit: 'mmol/L',
-            status: 'normal',
+            status: calculateBloodGlucoseStatus(bloodGlucose, vital.blood_glucose_type || 'random'),
             testType: vital.blood_glucose_type || 'random',
           } : undefined,
           lastRecorded: vital.recorded_at,
@@ -283,48 +340,53 @@ export const useMedications = (elderlyId: string) => {
   const [medications, setMedications] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  const fetchMedications = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const { data, error } = await supabase
+        .from('medications')
+        .select('*')
+        .eq('elderly_id', elderlyId)
+        .order('name', { ascending: true });
+
+      if (error) {
+        setError(error.message);
+      } else {
+        const meds: Medication[] = data.map(med => ({
+          id: med.id,
+          elderlyId: med.elderly_id,
+          name: med.name,
+          dosage: med.dosage,
+          frequency: med.frequency,
+          instructions: med.instructions || '',
+          prescribedBy: med.prescribed_by || '',
+          startDate: med.start_date,
+          endDate: med.end_date || undefined,
+          isActive: med.is_active,
+        }));
+        setMedications(meds);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!elderlyId) return;
-
-    const fetchMedications = async () => {
-      try {
-        setLoading(true);
-        const { data, error } = await supabase
-          .from('medications')
-          .select('*')
-          .eq('elderly_id', elderlyId)
-          .eq('is_active', true)
-          .order('name', { ascending: true });
-
-        if (error) {
-          setError(error.message);
-        } else {
-          const meds: Medication[] = data.map(med => ({
-            id: med.id,
-            elderlyId: med.elderly_id,
-            name: med.name,
-            dosage: med.dosage,
-            frequency: med.frequency,
-            instructions: med.instructions || '',
-            prescribedBy: med.prescribed_by || '',
-            startDate: med.start_date,
-            endDate: med.end_date || undefined,
-            isActive: med.is_active,
-          }));
-          setMedications(meds);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchMedications();
-  }, [elderlyId]);
+  }, [elderlyId, refetchTrigger]);
 
-  return { medications, loading, error };
+  const refetch = () => {
+    console.log('🔄 Refetching medications...');
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { medications, loading, error, refetch };
 };
 
 // Hook for adding medication
@@ -415,13 +477,15 @@ export const useRecordMedicationTaken = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const recordMedicationTaken = async (elderlyId: string, medicationId: string, takenBy: string, notes?: string) => {
+  const recordMedicationTaken = async (elderlyId: string, medicationId: string, takenBy: string, notes?: string, dosageTaken?: string) => {
     try {
       setLoading(true);
       setError(null);
 
       const today = new Date().toISOString().split('T')[0];
-      const now = new Date().toISOString();
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const scheduledTime = now.toTimeString().split(' ')[0]; // HH:MM:SS format
 
       const { error: upsertError } = await supabase
         .from('medication_schedules')
@@ -429,12 +493,14 @@ export const useRecordMedicationTaken = () => {
           elderly_id: elderlyId,
           medication_id: medicationId,
           date: today,
+          scheduled_time: scheduledTime,
           taken: true,
-          taken_at: now,
+          taken_at: nowIso,
           taken_by: takenBy,
           notes: notes || null,
+          dosage_taken: dosageTaken || null,
         }, {
-          onConflict: 'elderly_id,medication_id,date'
+          onConflict: 'elderly_id,medication_id,date,scheduled_time'
         });
 
       if (upsertError) {
@@ -912,6 +978,14 @@ export const useUpdateElderlyProfile = () => {
       if (updates.careLevel) updateData.care_level = updates.careLevel;
       if (updates.conditions) updateData.conditions = updates.conditions;
       if (updates.emergencyContact) updateData.emergency_contact = updates.emergencyContact;
+      // Physical information
+      if (updates.weight !== undefined) updateData.weight = updates.weight;
+      if (updates.height !== undefined) updateData.height = updates.height;
+      if (updates.bloodType) updateData.blood_type = updates.bloodType;
+      // Contact & emergency
+      if (updates.doctorName !== undefined) updateData.doctor_name = updates.doctorName;
+      if (updates.clinicName !== undefined) updateData.clinic_name = updates.clinicName;
+      if (updates.emergencyContactPhone !== undefined) updateData.emergency_contact_phone = updates.emergencyContactPhone;
 
       const { error: updateError } = await supabase
         .from('elderly_profiles')
@@ -944,6 +1018,7 @@ export const useMedicationTaken = (elderlyId: string) => {
   const [medicationTaken, setMedicationTaken] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     if (!elderlyId) return;
@@ -974,9 +1049,13 @@ export const useMedicationTaken = (elderlyId: string) => {
     };
 
     fetchMedicationTaken();
-  }, [elderlyId]);
+  }, [elderlyId, refetchTrigger]);
 
-  return { medicationTaken, loading, error };
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { medicationTaken, loading, error, refetch };
 };
 
 // Hook for deleting appointments
@@ -1085,4 +1164,137 @@ export const useUpdateUserProfile = () => {
   };
 
   return { updateUserProfile, loading, error };
+};
+
+// Hook for fetching vital signs history for trends
+export const useVitalSignsHistory = (elderlyId: string, period: 'week' | 'month' | '3months' = 'week') => {
+  const [vitalSignsHistory, setVitalSignsHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  const calculateBloodPressureStatus = (systolic: number, diastolic: number) => {
+    if (systolic === 0 || diastolic === 0) return 'normal';
+    if (systolic >= 180 || diastolic >= 110) return 'critical';
+    if (systolic >= 140 || diastolic >= 90) return 'concerning';
+    if (systolic < 90 || diastolic < 60) return 'concerning';
+    return 'normal';
+  };
+
+  const calculateSpO2Status = (value: number) => {
+    if (value === 0 || value === 98) return 'normal';
+    if (value < 88) return 'critical';
+    if (value < 95) return 'concerning';
+    return 'normal';
+  };
+
+  const calculatePulseStatus = (value: number) => {
+    if (value === 0 || value === 72) return 'normal';
+    if (value < 50 || value > 120) return 'critical';
+    if (value < 60 || value > 100) return 'concerning';
+    return 'normal';
+  };
+
+  const calculateTemperatureStatus = (value: number) => {
+    if (value === 0 || value === 36.5) return 'normal';
+    if (value >= 39.5 || value <= 35.0) return 'critical';
+    if (value >= 38.0 || value <= 35.5) return 'concerning';
+    return 'normal';
+  };
+
+  const calculateBloodGlucoseStatus = (value: number, testType: string) => {
+    if (value === 0) return 'normal';
+    if (testType === 'fasting') {
+      if (value >= 11.1 || value < 3.0) return 'critical';
+      if (value >= 7.0 || value < 4.0) return 'concerning';
+    } else {
+      if (value >= 15.0 || value < 3.0) return 'critical';
+      if (value >= 11.1 || value < 4.0) return 'concerning';
+    }
+    return 'normal';
+  };
+
+  useEffect(() => {
+    if (!elderlyId) return;
+
+    const fetchVitalSignsHistory = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Calculate date range based on period
+        const endDate = new Date();
+        const startDate = new Date();
+
+        switch (period) {
+          case 'week':
+            startDate.setDate(endDate.getDate() - 7);
+            break;
+          case 'month':
+            startDate.setMonth(endDate.getMonth() - 1);
+            break;
+          case '3months':
+            startDate.setMonth(endDate.getMonth() - 3);
+            break;
+        }
+
+        const { data, error } = await supabase
+          .from('vital_signs')
+          .select('*')
+          .eq('elderly_id', elderlyId)
+          .gte('recorded_at', startDate.toISOString())
+          .lte('recorded_at', endDate.toISOString())
+          .order('recorded_at', { ascending: true });
+
+        if (error) {
+          setError(error.message);
+        } else {
+          // Transform database data to trend format
+          const history = data.map(vital => {
+            const systolic = parseFloat(vital.systolic?.toString() || '0');
+            const diastolic = parseFloat(vital.diastolic?.toString() || '0');
+            const spO2 = parseFloat(vital.spo2?.toString() || '0');
+            const pulse = parseFloat(vital.pulse?.toString() || '0');
+            const temperature = parseFloat(vital.temperature?.toString() || '0');
+            const weight = parseFloat(vital.weight?.toString() || '0');
+            const bloodGlucose = parseFloat(vital.blood_glucose?.toString() || '0');
+
+            return {
+              date: vital.recorded_at,
+              systolic,
+              diastolic,
+              spO2,
+              pulse,
+              temperature,
+              weight,
+              bloodGlucose: bloodGlucose > 0 ? bloodGlucose : undefined,
+              bloodGlucoseType: vital.blood_glucose_type || 'random',
+              recordedBy: vital.recorded_by,
+              notes: vital.notes,
+              // Add status calculations for each vital
+              bloodPressureStatus: calculateBloodPressureStatus(systolic, diastolic),
+              spO2Status: calculateSpO2Status(spO2),
+              pulseStatus: calculatePulseStatus(pulse),
+              temperatureStatus: calculateTemperatureStatus(temperature),
+              bloodGlucoseStatus: bloodGlucose > 0 ? calculateBloodGlucoseStatus(bloodGlucose, vital.blood_glucose_type || 'random') : 'normal',
+            };
+          });
+
+          setVitalSignsHistory(history);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchVitalSignsHistory();
+  }, [elderlyId, period, refetchTrigger]);
+
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { vitalSignsHistory, loading, error, refetch };
 };

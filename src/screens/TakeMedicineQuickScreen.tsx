@@ -36,9 +36,12 @@ export function TakeMedicineQuickScreen({ navigation }: Props) {
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
-  const { medications, loading: medicationsLoading, error: medicationsError } = useMedications(currentElderly?.id || '');
+  const { medications: allMedications, loading: medicationsLoading, error: medicationsError } = useMedications(currentElderly?.id || '');
   const { userProfile } = useUserProfile();
   const { recordMedicationTaken, loading: recordingLoading } = useRecordMedicationTaken();
+
+  // Filter to only show active medications
+  const medications = allMedications.filter(med => med.isActive);
 
   const dataLoading = profilesLoading || medicationsLoading;
 

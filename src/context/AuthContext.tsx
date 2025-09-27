@@ -16,6 +16,7 @@ interface AuthContextType {
   updateUserProfile: (updates: any) => Promise<{error: any}>;
   createUserProfile: (userData: any) => Promise<{error: any}>;
   isAuthenticated: boolean;
+  hasCompletedProfileSetup: boolean;
   hasCompletedBoarding: boolean;
 }
 
@@ -130,7 +131,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         name: userData.name,
         email: email,
         phone: userData.phone,
-        role: userData.role || 'caregiver',
+        role: userData.role || 'not elderly',
         preferred_language: userData.language || 'en',
       });
 
@@ -278,7 +279,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           name: userData.name || user.email?.split('@')[0] || 'User',
           email: user.email!,
           phone: userData.phone || null,
-          role: userData.role || 'caregiver',
+          role: userData.role || 'not elderly',
           preferred_language: userData.language || 'en',
         })
         .select()
@@ -311,6 +312,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     updateUserProfile,
     createUserProfile,
     isAuthenticated: !!session,
+    hasCompletedProfileSetup: !!userProfile &&
+      !!userProfile.name &&
+      userProfile.name !== user?.email?.split('@')[0] &&
+      (userProfile.role === 'elderly' || userProfile.role === 'not elderly'),
     hasCompletedBoarding: !!userProfile?.family_id,
   };
 

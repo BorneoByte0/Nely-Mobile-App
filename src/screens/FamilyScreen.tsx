@@ -10,7 +10,7 @@ import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
 import { useModernAlert } from '../hooks/useModernAlert';
 import { hapticFeedback, healthStatusHaptics } from '../utils/haptics';
-import { useElderlyProfiles, useVitalSigns, useCareNotes } from '../hooks/useDatabase';
+import { useElderlyProfiles, useVitalSigns, useCareNotes, useMedications } from '../hooks/useDatabase';
 import { HealthLoadingState } from '../components/HealthLoadingState';
 import { ErrorState } from '../components/ErrorState';
 
@@ -35,9 +35,13 @@ export function FamilyScreen({ navigation }: Props) {
   const currentElderly = elderlyProfiles[0]; // For demo, use first elderly profile
   const { vitalSigns, loading: vitalsLoading, error: vitalsError, refetch: refetchVitalSigns } = useVitalSigns(currentElderly?.id || '');
   const { careNotes, loading: notesLoading, error: notesError, refetch: refetchCareNotes } = useCareNotes(currentElderly?.id || '');
+  const { medications: allMedications, loading: medicationsLoading, error: medicationsError, refetch: refetchMedications } = useMedications(currentElderly?.id || '');
+
+  // Filter to only show active medications in family overview
+  const medications = allMedications.filter(med => med.isActive);
 
 
-  const isDataLoading = elderlyLoading || vitalsLoading || notesLoading;
+  const isDataLoading = elderlyLoading || vitalsLoading || notesLoading || medicationsLoading;
 
   if (isDataLoading) {
     return (
@@ -87,6 +91,7 @@ export function FamilyScreen({ navigation }: Props) {
         refetchElderlyProfiles(),
         refetchVitalSigns(),
         refetchCareNotes(),
+        refetchMedications(),
       ]);
 
       console.log('✅ Family screen refresh completed successfully');
@@ -185,16 +190,16 @@ export function FamilyScreen({ navigation }: Props) {
                   </Text>
                   <Text style={styles.profileSeparator}>•</Text>
                   <Text style={styles.profileDetail}>
-                    {vitalSigns?.weight?.value || '--'} kg
+                    {currentElderly.weight || vitalSigns?.weight?.value || '--'} kg
                   </Text>
                   <Text style={styles.profileSeparator}>•</Text>
                   <Text style={styles.profileDetail}>
-                    155 cm
+                    {currentElderly.height || '--'} cm
                   </Text>
                 </View>
                 <View style={styles.profileDetailsRow}>
                   <Text style={styles.profileDetail}>
-                    {language === 'en' ? 'Blood Type:' : 'Jenis Darah:'} O+
+                    {language === 'en' ? 'Blood Type:' : 'Jenis Darah:'} {currentElderly.bloodType || '--'}
                   </Text>
                   <Text style={styles.profileSeparator}>•</Text>
                   <Text style={styles.relationship}>
@@ -207,13 +212,15 @@ export function FamilyScreen({ navigation }: Props) {
                   <Text style={styles.emergencyLabel}>
                     {language === 'en' ? 'Emergency:' : 'Kecemasan:'}
                   </Text>
-                  <Text style={styles.emergencyContact}>{currentElderly.emergencyContact || '+60 12-345 6789'}</Text>
+                  <Text style={styles.emergencyContact}>
+                    {currentElderly.emergencyContactPhone || currentElderly.emergencyContact || '--'}
+                  </Text>
                 </View>
-                
+
                 {/* Doctor Information */}
                 <View style={styles.doctorInfo}>
                   <Text style={styles.doctorText}>
-                    Dr. Siti Nurhaliza • Bandar Health Clinic
+                    {currentElderly.doctorName || '--'} {currentElderly.clinicName ? `• ${currentElderly.clinicName}` : ''}
                   </Text>
                 </View>
                 
@@ -406,13 +413,12 @@ export function FamilyScreen({ navigation }: Props) {
             </TouchableOpacity>
           </View>
           
-          {(currentElderly.currentMedications || [])
-            .filter(medication => medication.isActive)
+          {medications
             .slice(0, 3)
             .map((medication, index) => (
             <View key={medication.id} style={[
-              styles.medicationItem, 
-              index === (currentElderly.currentMedications || []).filter(med => med.isActive).slice(0, 3).length - 1 && styles.lastMedicationItem
+              styles.medicationItem,
+              index === medications.slice(0, 3).length - 1 && styles.lastMedicationItem
             ]}>
               <View style={styles.medicationInfo}>
                 <Text style={styles.medicationName}>{medication.name}</Text>
@@ -449,7 +455,7 @@ export function FamilyScreen({ navigation }: Props) {
             </View>
           ))}
           
-          {(currentElderly.currentMedications || []).filter(medication => medication.isActive).length === 0 && (
+          {medications.filter(medication => medication.isActive).length === 0 && (
             <View style={styles.noMedicationsContainer}>
               <Ionicons name="medical-outline" size={24} color={colors.textMuted} />
               <Text style={styles.noMedicationsText}>
@@ -645,6 +651,7 @@ export function FamilyScreen({ navigation }: Props) {
           unit={selectedVital.unit}
           status={selectedVital.status}
           lastRecorded={vitalSigns?.lastRecorded || ''}
+          elderlyId={currentElderly?.id}
           recordedBy={vitalSigns?.recordedBy || ''}
           navigation={navigation}
         />
@@ -677,8 +684,8 @@ function getCareStatusColor(careLevel: string) {
 
 function getCareLevel(careLevel: string, language: string) {
   const levels = {
-    independent: language === 'en' ? 'Independent' : 'Bebas',
-    dependent: language === 'en' ? 'Needs Assistance' : 'Perlu Bantuan',
+    independent: language === 'en' ? 'Independent' : 'Berdikari',
+    dependent: language === 'en' ? 'Dependent' : 'Bergantung',
     bedridden: language === 'en' ? 'Bedridden' : 'Terlantar',
   };
   return levels[careLevel as keyof typeof levels] || careLevel;

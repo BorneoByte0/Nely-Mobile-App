@@ -8,8 +8,16 @@ export interface ElderlyProfile {
   careLevel: 'independent' | 'dependent' | 'bedridden';
   conditions: string[];
   currentMedications: Medication[];
-  emergencyContact: string;
+  emergencyContact: string; // Keep for backward compatibility
   dateCreated: string;
+  // Physical information
+  weight?: number; // in kilograms
+  height?: number; // in centimeters
+  bloodType?: 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-';
+  // Contact & emergency
+  doctorName?: string;
+  clinicName?: string;
+  emergencyContactPhone?: string;
 }
 
 export interface VitalSigns {
@@ -131,7 +139,7 @@ export interface User {
   name: string;
   email: string;
   phone: string;
-  role: 'elderly' | 'caregiver';
+  role: 'elderly' | 'not elderly';
   familyId: string;
   avatar?: string;
   isActive: boolean;

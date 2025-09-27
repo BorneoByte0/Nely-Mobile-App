@@ -103,7 +103,7 @@ export function RoleManagementScreen({ navigation }: Props) {
       id: 'user-002',
       name: 'Siti Fatimah',
       relationship: 'Daughter',
-      role: 'caregiver',
+      role: 'not elderly',
       isActive: true,
       permissions: {
         viewHealth: true,
@@ -141,7 +141,7 @@ export function RoleManagementScreen({ navigation }: Props) {
         : 'Akses penuh kepada semua ciri dan tetapan'
     },
     {
-      value: 'caregiver',
+      value: 'not elderly',
       labelEn: 'Primary Caregiver',
       labelMs: 'Penjaga Utama',
       description: language === 'en'
@@ -305,7 +305,7 @@ export function RoleManagementScreen({ navigation }: Props) {
           inviteMembers: true,
           manageRoles: true,
         };
-      case 'caregiver':
+      case 'not elderly':
         return {
           viewHealth: true,
           editHealth: true,
@@ -339,7 +339,7 @@ export function RoleManagementScreen({ navigation }: Props) {
     switch (role) {
       case 'admin':
         return colors.error;
-      case 'caregiver':
+      case 'not elderly':
         return colors.primary;
       case 'viewer':
         return colors.info;

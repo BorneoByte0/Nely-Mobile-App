@@ -23,6 +23,7 @@ interface MedicationForm {
   dosage: string;
   frequency: string;
   duration: string;
+  durationPeriod: string;
   instructions: string;
   prescribedBy: string;
 }
@@ -83,9 +84,28 @@ export function AddMedicationScreen({ navigation }: Props) {
     dosage: '',
     frequency: '',
     duration: '',
+    durationPeriod: 'days',
     instructions: '',
     prescribedBy: '',
   });
+
+  // Duration period options
+  const durationPeriods = [
+    { value: 'days', labelEn: 'Days', labelMs: 'Hari' },
+    { value: 'weeks', labelEn: 'Weeks', labelMs: 'Minggu' },
+    { value: 'months', labelEn: 'Months', labelMs: 'Bulan' },
+    { value: 'years', labelEn: 'Years', labelMs: 'Tahun' },
+  ];
+
+  // Common duration values
+  const commonDurations = [
+    { value: '7', period: 'days', labelEn: '1 Week', labelMs: '1 Minggu' },
+    { value: '14', period: 'days', labelEn: '2 Weeks', labelMs: '2 Minggu' },
+    { value: '1', period: 'months', labelEn: '1 Month', labelMs: '1 Bulan' },
+    { value: '3', period: 'months', labelEn: '3 Months', labelMs: '3 Bulan' },
+    { value: '6', period: 'months', labelEn: '6 Months', labelMs: '6 Bulan' },
+    { value: '1', period: 'years', labelEn: '1 Year', labelMs: '1 Tahun' },
+  ];
 
   const handleSave = async () => {
     // Basic validation
@@ -117,10 +137,24 @@ export function AddMedicationScreen({ navigation }: Props) {
       // Calculate end date if duration is provided
       let endDate: string | undefined;
       if (formData.duration) {
-        const durationDays = parseInt(formData.duration);
-        if (!isNaN(durationDays)) {
+        const durationValue = parseInt(formData.duration);
+        if (!isNaN(durationValue)) {
           const end = new Date();
-          end.setDate(end.getDate() + durationDays);
+
+          switch (formData.durationPeriod) {
+            case 'days':
+              end.setDate(end.getDate() + durationValue);
+              break;
+            case 'weeks':
+              end.setDate(end.getDate() + (durationValue * 7));
+              break;
+            case 'months':
+              end.setMonth(end.getMonth() + durationValue);
+              break;
+            case 'years':
+              end.setFullYear(end.getFullYear() + durationValue);
+              break;
+          }
           endDate = end.toISOString();
         }
       }
@@ -265,17 +299,88 @@ export function AddMedicationScreen({ navigation }: Props) {
             </View>
           </View>
 
+          {/* Duration Section */}
           <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>
               {language === 'en' ? 'Duration' : 'Tempoh'}
             </Text>
-            <TextInput
-              style={styles.textInput}
-              value={formData.duration}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, duration: text }))}
-              placeholder={language === 'en' ? '30 days, 1 month, etc.' : '30 hari, 1 bulan, dll.'}
-              placeholderTextColor={colors.textMuted}
-            />
+
+            {/* Duration Input Row */}
+            <View style={styles.durationInputRow}>
+              <View style={styles.durationNumberContainer}>
+                <TextInput
+                  style={[styles.textInput, styles.durationNumberInput]}
+                  value={formData.duration}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, duration: text.replace(/[^0-9]/g, '') }))}
+                  placeholder="30"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="numeric"
+                  maxLength={3}
+                />
+              </View>
+
+              <View style={styles.durationPeriodContainer}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.durationPeriodScroll}
+                >
+                  {durationPeriods.map((period) => (
+                    <TouchableOpacity
+                      key={period.value}
+                      style={[
+                        styles.durationPeriodButton,
+                        formData.durationPeriod === period.value && styles.durationPeriodButtonActive
+                      ]}
+                      onPress={() => {
+                        setFormData(prev => ({ ...prev, durationPeriod: period.value }));
+                        hapticFeedback.selection();
+                      }}
+                    >
+                      <Text style={[
+                        styles.durationPeriodText,
+                        formData.durationPeriod === period.value && styles.durationPeriodTextActive
+                      ]}>
+                        {language === 'en' ? period.labelEn : period.labelMs}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* Common Duration Quick Select */}
+            <View style={styles.quickSelectContainer}>
+              <Text style={styles.quickSelectLabel}>
+                {language === 'en' ? 'Common Durations:' : 'Tempoh Biasa:'}
+              </Text>
+              <View style={styles.quickSelectOptions}>
+                {commonDurations.map((duration, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.quickSelectButton,
+                      formData.duration === duration.value && formData.durationPeriod === duration.period && styles.quickSelectButtonActive
+                    ]}
+                    onPress={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        duration: duration.value,
+                        durationPeriod: duration.period
+                      }));
+                      hapticFeedback.selection();
+                    }}
+                  >
+                    <Text style={[
+                      styles.quickSelectText,
+                      formData.duration === duration.value && formData.durationPeriod === duration.period && styles.quickSelectTextActive
+                    ]}>
+                      {language === 'en' ? duration.labelEn : duration.labelMs}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
           </View>
 
           {/* Frequency Quick Select */}
@@ -552,6 +657,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.primary,
     fontWeight: '500',
+  },
+  quickSelectButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  quickSelectTextActive: {
+    color: colors.white,
+  },
+  // Duration specific styles
+  durationInputRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  durationNumberContainer: {
+    flex: 0.3,
+  },
+  durationNumberInput: {
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  durationPeriodContainer: {
+    flex: 0.7,
+  },
+  durationPeriodScroll: {
+    gap: 8,
+  },
+  durationPeriodButton: {
+    backgroundColor: colors.gray100,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+  },
+  durationPeriodButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  durationPeriodText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  durationPeriodTextActive: {
+    color: colors.white,
   },
   saveButton: {
     flexDirection: 'row',

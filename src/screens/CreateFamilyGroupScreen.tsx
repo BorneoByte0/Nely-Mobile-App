@@ -63,6 +63,7 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
   const [elderlyName, setElderlyName] = useState('');
   const [elderlyAge, setElderlyAge] = useState('');
   const [relationship, setRelationship] = useState('');
+  const [careLevel, setCareLevel] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showRelationshipDropdown, setShowRelationshipDropdown] = useState(false);
 
@@ -84,6 +85,12 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
     { key: 'other', labelEn: 'Other Family Member', labelMs: 'Ahli Keluarga Lain' },
   ];
 
+  const careLevelOptions: RelationshipOption[] = [
+    { key: 'independent', labelEn: 'Independent', labelMs: 'Berdikari' },
+    { key: 'dependent', labelEn: 'Dependent', labelMs: 'Bergantung' },
+    { key: 'bedridden', labelEn: 'Bedridden', labelMs: 'Terlantar' },
+  ];
+
   const texts = {
     en: {
       title: 'Create Family Group',
@@ -97,6 +104,8 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
       elderlyAgePlaceholder: 'Age in years',
       relationshipLabel: 'Your relationship to them',
       relationshipPlaceholder: 'Select relationship',
+      careLevelLabel: 'Care Level',
+      careLevelPlaceholder: 'Select care level',
       createButton: 'Create Family Group',
       success: 'Success',
       familyCreated: 'Family group created successfully!',
@@ -119,6 +128,8 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
       elderlyAgePlaceholder: 'Umur dalam tahun',
       relationshipLabel: 'Hubungan anda dengan mereka',
       relationshipPlaceholder: 'Pilih hubungan',
+      careLevelLabel: 'Tahap Penjagaan',
+      careLevelPlaceholder: 'Pilih tahap penjagaan',
       createButton: 'Buat Kumpulan Keluarga',
       success: 'Berjaya',
       familyCreated: 'Kumpulan keluarga berjaya dibuat!',
@@ -259,7 +270,7 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
   };
 
   const validateForm = () => {
-    if (!familyName.trim() || !elderlyName.trim() || !elderlyAge.trim() || !relationship) {
+    if (!familyName.trim() || !elderlyName.trim() || !elderlyAge.trim() || !relationship || !careLevel) {
       showAlert({
         type: 'error',
         title: t.error,
@@ -331,7 +342,8 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
         p_family_name: familyName.trim(),
         p_elderly_name: elderlyName.trim(),
         p_elderly_age: parseInt(elderlyAge),
-        p_elderly_relationship: relationship
+        p_elderly_relationship: relationship,
+        p_elderly_care_level: careLevel
       });
 
       console.log('Secure RPC result:', { rpcResult, rpcError });
@@ -541,6 +553,40 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
                     ))}
                   </Animated.View>
                 </Animated.View>
+              </View>
+
+              {/* Care Level Section */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>{t.careLevelLabel}</Text>
+                <View style={styles.optionsContainer}>
+                  {careLevelOptions.map((option) => (
+                    <InteractiveFeedback
+                      key={option.key}
+                      onPress={() => setCareLevel(option.key)}
+                      disabled={isLoading}
+                    >
+                      <View style={[
+                        styles.optionButton,
+                        careLevel === option.key && styles.optionButtonSelected
+                      ]}>
+                        <View style={[
+                          styles.radioButton,
+                          careLevel === option.key && styles.radioButtonSelected
+                        ]}>
+                          {careLevel === option.key && (
+                            <View style={styles.radioButtonInner} />
+                          )}
+                        </View>
+                        <Text style={[
+                          styles.optionText,
+                          careLevel === option.key && styles.optionTextSelected
+                        ]}>
+                          {language === 'en' ? option.labelEn : option.labelMs}
+                        </Text>
+                      </View>
+                    </InteractiveFeedback>
+                  ))}
+                </View>
               </View>
             </View>
           </View>
@@ -768,5 +814,52 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: colors.white,
+  },
+
+  // Care Level Radio Button Styles
+  optionsContainer: {
+    gap: 12,
+  },
+  optionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: colors.white,
+    borderWidth: 1.5,
+    borderColor: colors.gray200,
+    borderRadius: 12,
+    gap: 12,
+  },
+  optionButtonSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryAlpha,
+  },
+  radioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.gray300,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioButtonSelected: {
+    borderColor: colors.primary,
+  },
+  radioButtonInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+  },
+  optionText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: '500',
+  },
+  optionTextSelected: {
+    color: colors.primary,
+    fontWeight: '600',
   },
 });

@@ -34,8 +34,6 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   const [loginPassword, setLoginPassword] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -86,7 +84,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       }
     } else {
       // Real registration with Supabase
-      if (email.trim() && registerPassword.trim() && confirmPassword.trim() && name.trim()) {
+      if (email.trim() && registerPassword.trim() && confirmPassword.trim()) {
         if (registerPassword === confirmPassword) {
           if (registerPassword.length < 6) {
             showError(texts.auth.error, 'Password must be at least 6 characters');
@@ -96,9 +94,9 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
           setIsLoading(true);
           try {
             const userData = {
-              name: name.trim(),
-              phone: phone.trim(),
-              role: 'caregiver',
+              name: email.split('@')[0], // Use email prefix as name
+              phone: '', // Empty phone number
+              role: 'not elderly', // Default role - users can change later
               language: language
             };
 
@@ -110,7 +108,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             } else {
               showSuccess(
                 texts.auth.registerSuccess,
-                `${texts.auth.welcome}, ${name}!`,
+                `${texts.auth.welcome}!`,
                 () => onAuthSuccess(email, false)
               );
             }
@@ -122,7 +120,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
           showError(texts.auth.error, texts.auth.passwordMismatch);
         }
       } else {
-        showError(texts.auth.error, texts.auth.fillAllFields);
+        showError(texts.auth.error, 'Please fill in email and password fields');
       }
     }
   };
@@ -175,26 +173,6 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
               </InteractiveFeedback>
             </View>
 
-            {!isLogin && (
-              <>
-                <TextInput
-                  style={styles.input}
-                  placeholder={texts.auth.fullName}
-                  placeholderTextColor={colors.textMuted}
-                  value={name}
-                  onChangeText={setName}
-                  autoCapitalize="words"
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder={texts.auth.phoneNumber}
-                  placeholderTextColor={colors.textMuted}
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                />
-              </>
-            )}
 
             <TextInput
               style={styles.input}

@@ -11,13 +11,14 @@ import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { VerifyScreen } from './src/screens/VerifyScreen';
 import { BoardingScreen } from './src/screens/BoardingScreen';
 import { CreateFamilyGroupScreen } from './src/screens/CreateFamilyGroupScreen';
+import { CreateUsersScreen } from './src/screens/CreateUsersScreen';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 
-type AppState = 'loading' | 'onboarding' | 'auth' | 'verify' | 'boarding' | 'createFamily' | 'authenticated';
+type AppState = 'loading' | 'onboarding' | 'auth' | 'verify' | 'createProfile' | 'boarding' | 'createFamily' | 'authenticated';
 
 function AppContent() {
-  const { user, loading, isAuthenticated, hasCompletedBoarding } = useAuth();
+  const { user, loading, isAuthenticated, hasCompletedProfileSetup, hasCompletedBoarding } = useAuth();
   const [appState, setAppState] = useState<AppState>('loading');
   const [userEmail, setUserEmail] = useState<string>('');
   const [isFirstTimeUser, setIsFirstTimeUser] = useState<boolean>(true);
@@ -47,12 +48,15 @@ function AppContent() {
     // Only transition from loading state if both auth loading is done AND splash is completed
     if (!loading && splashCompleted && appState === 'loading') {
       if (isAuthenticated && user) {
-        // Check if user has completed family setup (boarding)
-        if (hasCompletedBoarding) {
-          // User has completed boarding - go to main app
+        // Check profile setup completion first, then boarding
+        if (!hasCompletedProfileSetup) {
+          // User authenticated but hasn't completed profile setup
+          animateStateTransition(() => setAppState('createProfile'));
+        } else if (hasCompletedBoarding) {
+          // User has completed everything - go to main app
           animateStateTransition(() => setAppState('authenticated'));
         } else {
-          // User hasn't completed boarding - send to boarding screen
+          // User has profile but hasn't completed boarding - send to boarding screen
           animateStateTransition(() => setAppState('boarding'));
         }
       } else {
@@ -63,7 +67,7 @@ function AppContent() {
         }
       }
     }
-  }, [loading, isAuthenticated, user, hasCompletedBoarding, isFirstTimeUser, appState, splashCompleted, animateStateTransition]);
+  }, [loading, isAuthenticated, user, hasCompletedProfileSetup, hasCompletedBoarding, isFirstTimeUser, appState, splashCompleted, animateStateTransition]);
 
   const handleSplashComplete = useCallback(() => {
     setSplashCompleted(true);
@@ -87,6 +91,10 @@ function AppContent() {
   }, [animateStateTransition]);
 
   const handleVerifySuccess = useCallback(() => {
+    animateStateTransition(() => setAppState('createProfile'));
+  }, [animateStateTransition]);
+
+  const handleProfileSetupComplete = useCallback(() => {
     animateStateTransition(() => setAppState('boarding'));
   }, [animateStateTransition]);
 
@@ -126,6 +134,13 @@ function AppContent() {
           <VerifyScreen
             onVerifySuccess={handleVerifySuccess}
             email={userEmail}
+          />
+        );
+
+      case 'createProfile':
+        return (
+          <CreateUsersScreen
+            onSetupComplete={handleProfileSetupComplete}
           />
         );
 
@@ -191,6 +206,7 @@ function AppContent() {
     handleOnboardingComplete,
     handleAuthSuccess,
     handleVerifySuccess,
+    handleProfileSetupComplete,
     handleCreateFamily,
     handleJoinFamily,
     handleFamilyCreated,

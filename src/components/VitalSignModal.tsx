@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
+import { useVitalSignsHistory } from '../hooks/useDatabase';
 
 const { width, height } = Dimensions.get('window');
 
@@ -25,6 +26,7 @@ interface VitalSignModalProps {
   lastRecorded: string;
   recordedBy: string;
   navigation?: any;
+  elderlyId?: string; // Add elderly ID for fetching history
 }
 
 export const VitalSignModal: React.FC<VitalSignModalProps> = ({
@@ -37,9 +39,21 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
   lastRecorded,
   recordedBy,
   navigation,
+  elderlyId,
 }) => {
   const { language } = useLanguage();
   const [slideAnim] = useState(new Animated.Value(height));
+
+  // Fetch vital signs history for this elderly person
+  const { vitalSignsHistory, loading: historyLoading, refetch: refetchHistory } = useVitalSignsHistory(elderlyId || '', 'month');
+
+  // Refetch history when modal becomes visible
+  React.useEffect(() => {
+    if (visible && elderlyId) {
+      console.log('🔄 VitalSignModal: Refetching history on modal open...');
+      refetchHistory();
+    }
+  }, [visible, elderlyId]); // Removed refetchHistory from dependencies
 
   React.useEffect(() => {
     if (visible) {
@@ -137,12 +151,91 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
 
   const vital = getVitalInfo();
 
-  const mockHistory = [
-    { date: '2024-09-06 09:30', value: currentValue, status, recordedBy },
-    { date: '2024-09-05 19:15', value: vitalType === 'bloodPressure' ? '142/88' : '96', status: 'concerning', recordedBy: 'Siti Fatimah' },
-    { date: '2024-09-05 08:20', value: vitalType === 'bloodPressure' ? '138/85' : '98', status: 'normal', recordedBy: 'Ahmad' },
-    { date: '2024-09-04 20:45', value: vitalType === 'bloodPressure' ? '140/87' : '97', status: 'concerning', recordedBy: 'Nurul Ain' },
-  ];
+  // Process vital signs history for the specific vital type
+  const vitalHistory = React.useMemo((): Array<{
+    date: string;
+    value: string;
+    status: string;
+    recordedBy: string;
+  }> => {
+    if (!vitalSignsHistory || vitalSignsHistory.length === 0) {
+      return [];
+    }
+
+    const processedHistory = vitalSignsHistory
+      .map(reading => {
+        let value = '';
+        let vitalStatus = 'normal';
+
+        switch (vitalType) {
+          case 'bloodPressure':
+            if (reading.systolic && reading.diastolic) {
+              value = `${reading.systolic}/${reading.diastolic}`;
+              vitalStatus = reading.bloodPressureStatus || 'normal';
+            }
+            break;
+          case 'spO2':
+            if (reading.spO2) {
+              value = reading.spO2.toString();
+              vitalStatus = reading.spO2Status || 'normal';
+            }
+            break;
+          case 'pulse':
+            if (reading.pulse) {
+              value = reading.pulse.toString();
+              vitalStatus = reading.pulseStatus || 'normal';
+            }
+            break;
+          case 'temperature':
+            if (reading.temperature) {
+              value = reading.temperature.toFixed(1);
+              vitalStatus = reading.temperatureStatus || 'normal';
+            }
+            break;
+          case 'bloodGlucose':
+            if (reading.bloodGlucose) {
+              value = reading.bloodGlucose.toString();
+              vitalStatus = reading.bloodGlucoseStatus || 'normal';
+            }
+            break;
+          case 'weight':
+            if (reading.weight) {
+              value = reading.weight.toString();
+              vitalStatus = 'normal'; // Weight doesn't have status calculation
+            }
+            break;
+        }
+
+        if (value) {
+          return {
+            date: reading.date,
+            value: value,
+            status: vitalStatus,
+            recordedBy: reading.recordedBy || 'Unknown User'
+          };
+        }
+        return null;
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) // Most recent first
+      .slice(0, 6); // Show up to 6 recent readings
+
+    return processedHistory;
+  }, [vitalSignsHistory, vitalType]);
+
+  // Debug logging
+  React.useEffect(() => {
+    if (visible) {
+      console.log('🔍 VitalSignModal Debug:', {
+        elderlyId,
+        vitalType,
+        historyLoading,
+        rawHistoryLength: vitalSignsHistory?.length || 0,
+        processedHistoryLength: vitalHistory.length,
+        vitalHistory: vitalHistory.slice(0, 2), // Show first 2 for debugging
+      });
+    }
+  }, [visible, elderlyId, vitalType, historyLoading, vitalSignsHistory?.length]); // Removed vitalHistory to prevent infinite loops
 
   return (
     <Modal
@@ -205,7 +298,12 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
                     {language === 'en' ? 'Last Recorded:' : 'Dicatat Terakhir:'}
                   </Text>
                   <Text style={styles.detailValue}>
-                    {new Date(lastRecorded).toLocaleString()}
+                    {(() => {
+                      const lastDate = new Date(lastRecorded);
+                      return !isNaN(lastDate.getTime())
+                        ? lastDate.toLocaleString()
+                        : 'Invalid date';
+                    })()}
                   </Text>
                 </View>
                 <View style={styles.detailRow}>
@@ -219,26 +317,76 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
 
             {/* Recent History */}
             <View style={styles.infoCard}>
-              <Text style={styles.infoTitle}>
-                {language === 'en' ? 'Recent History' : 'Sejarah Terkini'}
-              </Text>
-              {mockHistory.map((reading, index) => (
-                <View key={index} style={styles.historyItem}>
-                  <View style={styles.historyLeft}>
-                    <Text style={styles.historyDate}>
-                      {new Date(reading.date).toLocaleDateString()}
-                    </Text>
-                    <Text style={styles.historyTime}>
-                      {new Date(reading.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                  <View style={styles.historyCenter}>
-                    <Text style={styles.historyValue}>{reading.value} {unit}</Text>
-                    <Text style={styles.historyRecorder}>{reading.recordedBy}</Text>
-                  </View>
-                  <View style={[styles.historyStatus, { backgroundColor: getStatusColor(reading.status) }]} />
+              <View style={styles.historyHeader}>
+                <Text style={styles.infoTitle}>
+                  {language === 'en' ? 'Recent History' : 'Sejarah Terkini'}
+                </Text>
+                {vitalHistory.length > 0 && (
+                  <Text style={styles.historyCount}>
+                    {vitalHistory.length} {language === 'en' ? 'readings' : 'bacaan'}
+                  </Text>
+                )}
+              </View>
+
+              {historyLoading ? (
+                <View style={styles.loadingContainer}>
+                  <Text style={styles.loadingText}>
+                    {language === 'en' ? 'Loading history...' : 'Memuatkan sejarah...'}
+                  </Text>
                 </View>
-              ))}
+              ) : vitalHistory.length > 0 ? (
+                <>
+                  {vitalHistory.map((reading, index) => {
+                    const readingDate = new Date(reading.date);
+                    const isValidDate = !isNaN(readingDate.getTime());
+
+                    return (
+                      <View key={index} style={styles.historyItem}>
+                        <View style={styles.historyLeft}>
+                          <Text style={styles.historyDate}>
+                            {isValidDate ? readingDate.toLocaleDateString('en-GB', {
+                              day: '2-digit',
+                              month: 'short'
+                            }) : 'Invalid'}
+                          </Text>
+                          <Text style={styles.historyTime}>
+                            {isValidDate ? readingDate.toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false
+                            }) : '--:--'}
+                          </Text>
+                        </View>
+                        <View style={styles.historyCenter}>
+                          <Text style={styles.historyValue}>{reading.value} {unit}</Text>
+                          <Text style={styles.historyRecorder}>{reading.recordedBy}</Text>
+                        </View>
+                        <View style={[styles.historyStatus, { backgroundColor: getStatusColor(reading.status) }]} />
+                      </View>
+                    );
+                  })}
+
+                  {vitalHistory.length < 4 && (
+                    <View style={styles.moreDataNeeded}>
+                      <Ionicons name="information-circle-outline" size={16} color={colors.warning} />
+                      <Text style={styles.moreDataText}>
+                        {language === 'en'
+                          ? `Record ${4 - vitalHistory.length} more readings to see better trends`
+                          : `Rekod ${4 - vitalHistory.length} lagi bacaan untuk melihat trend yang lebih baik`}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View style={styles.noHistoryContainer}>
+                  <Ionicons name="bar-chart-outline" size={32} color={colors.textMuted} />
+                  <Text style={styles.noHistoryText}>
+                    {language === 'en'
+                      ? 'No vital signs history available yet. Record new readings to build history.'
+                      : 'Belum ada sejarah tanda vital. Rekod bacaan baru untuk membina sejarah.'}
+                  </Text>
+                </View>
+              )}
             </View>
 
             {/* Action Buttons */}
@@ -405,6 +553,45 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.textPrimary,
   },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  historyCount: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.primary,
+    backgroundColor: colors.primary + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  loadingContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  moreDataNeeded: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.warning + '10',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+    gap: 8,
+  },
+  moreDataText: {
+    fontSize: 12,
+    color: colors.warning,
+    flex: 1,
+    lineHeight: 16,
+  },
   historyItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -413,15 +600,20 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.gray200,
   },
   historyLeft: {
-    width: 80,
+    width: 90,
+    alignItems: 'center',
   },
   historyDate: {
-    fontSize: 12,
-    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    textAlign: 'center',
   },
   historyTime: {
-    fontSize: 10,
-    color: colors.textMuted,
+    fontSize: 11,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 2,
   },
   historyCenter: {
     flex: 1,
@@ -440,6 +632,17 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
+  },
+  noHistoryContainer: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    gap: 12,
+  },
+  noHistoryText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   actionButtons: {
     marginHorizontal: 20,

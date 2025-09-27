@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Dimensions, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,9 +38,66 @@ export function EditElderlyProfileScreen({ navigation, route }: Props) {
   const { elderlyProfiles, loading: profilesLoading, error: profilesError } = useElderlyProfiles();
   const { updateElderlyProfile, loading: updateLoading } = useUpdateElderlyProfile();
 
+  // Triple dots animation - moved before early returns
+  const dot1Anim = useState(new Animated.Value(0.4))[0];
+  const dot2Anim = useState(new Animated.Value(0.4))[0];
+  const dot3Anim = useState(new Animated.Value(0.4))[0];
+
   const { elderlyId } = route?.params || {};
   const elderlyProfile = elderlyProfiles.find(p => p.id === elderlyId) || elderlyProfiles[0];
 
+  // Form state with current elderly profile data - moved before early returns
+  const [formData, setFormData] = useState(() => {
+    if (elderlyProfile) {
+      return {
+        name: elderlyProfile.name,
+        age: elderlyProfile.age.toString(),
+        relationship: elderlyProfile.relationship,
+        careLevel: elderlyProfile.careLevel,
+        conditions: elderlyProfile.conditions?.join(', ') || '',
+        weight: elderlyProfile.weight?.toString() || '',
+        height: elderlyProfile.height?.toString() || '',
+        bloodType: elderlyProfile.bloodType || 'O+',
+        emergencyContact: elderlyProfile.emergencyContactPhone || elderlyProfile.emergencyContact || '', // Use new field primarily
+        doctorName: elderlyProfile.doctorName || '',
+        clinicName: elderlyProfile.clinicName || '',
+      };
+    }
+    return {
+      name: '',
+      age: '',
+      relationship: '',
+      careLevel: 'independent',
+      conditions: '',
+      weight: '',
+      height: '',
+      bloodType: 'O+',
+      emergencyContact: '', // Maps to emergency_contact_phone in database
+      doctorName: '',
+      clinicName: '',
+    };
+  });
+
+  // Update form data when elderly profile changes
+  useEffect(() => {
+    if (elderlyProfile) {
+      setFormData({
+        name: elderlyProfile.name,
+        age: elderlyProfile.age.toString(),
+        relationship: elderlyProfile.relationship,
+        careLevel: elderlyProfile.careLevel,
+        conditions: elderlyProfile.conditions?.join(', ') || '',
+        weight: elderlyProfile.weight?.toString() || '',
+        height: elderlyProfile.height?.toString() || '',
+        bloodType: elderlyProfile.bloodType || 'O+',
+        emergencyContact: elderlyProfile.emergencyContactPhone || elderlyProfile.emergencyContact || '', // Use new field primarily
+        doctorName: elderlyProfile.doctorName || '',
+        clinicName: elderlyProfile.clinicName || '',
+      });
+    }
+  }, [elderlyProfile]);
+
+  // Early returns after all hooks are called
   if (profilesLoading) {
     return (
       <SafeAreaWrapper gradientVariant="family" includeTabBarPadding={true}>
@@ -64,12 +121,6 @@ export function EditElderlyProfileScreen({ navigation, route }: Props) {
       </SafeAreaWrapper>
     );
   }
-  // Removed dropdown state - using radio options instead
-
-  // Triple dots animation
-  const dot1Anim = useState(new Animated.Value(0.4))[0];
-  const dot2Anim = useState(new Animated.Value(0.4))[0];
-  const dot3Anim = useState(new Animated.Value(0.4))[0];
 
   const startDotsAnimation = () => {
     const animateDot = (dotAnim: Animated.Value, delay: number) => {
@@ -105,21 +156,6 @@ export function EditElderlyProfileScreen({ navigation, route }: Props) {
     dot2Anim.setValue(0.4);
     dot3Anim.setValue(0.4);
   };
-  
-  // Form state with current elderly profile data
-  const [formData, setFormData] = useState({
-    name: elderlyProfile.name,
-    age: elderlyProfile.age.toString(),
-    relationship: elderlyProfile.relationship,
-    careLevel: elderlyProfile.careLevel,
-    conditions: elderlyProfile.conditions?.join(', ') || '', // Convert array to string
-    weight: '65', // Default weight - would need additional fields in database
-    height: '155', // Default height - would need additional fields in database
-    bloodType: 'O+', // Default blood type - would need additional field in database
-    emergencyContact: elderlyProfile.emergencyContact || '',
-    doctorName: '', // Would need additional fields in database
-    clinicName: '', // Would need additional fields in database
-  });
 
   const careLevels = [
     { value: 'independent', labelEn: 'Independent', labelMs: 'Berdikari' },
@@ -153,7 +189,15 @@ export function EditElderlyProfileScreen({ navigation, route }: Props) {
         relationship: formData.relationship,
         careLevel: formData.careLevel as 'independent' | 'dependent' | 'bedridden',
         conditions: formData.conditions ? formData.conditions.split(',').map(c => c.trim()).filter(c => c) : [],
-        emergencyContact: formData.emergencyContact,
+        emergencyContact: formData.emergencyContact, // Keep for backward compatibility
+        emergencyContactPhone: formData.emergencyContact, // Map UI field to new database field
+        // Physical information
+        weight: formData.weight ? parseFloat(formData.weight) : undefined,
+        height: formData.height ? parseInt(formData.height) : undefined,
+        bloodType: formData.bloodType as 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-',
+        // Contact & emergency
+        doctorName: formData.doctorName || undefined,
+        clinicName: formData.clinicName || undefined,
       };
 
       const success = await updateElderlyProfile(elderlyProfile.id, updateData);

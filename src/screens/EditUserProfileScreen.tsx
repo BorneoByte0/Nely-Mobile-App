@@ -109,7 +109,7 @@ export function EditUserProfileScreen({ navigation, route }: Props) {
         name: 'John Doe',
         email: 'john.doe@example.com',
         phone: '+60 12-345 6789',
-        role: 'caregiver',
+        role: 'not elderly',
         relationship: 'son',
         emergencyContact: '+60 12-987 6543',
         address: '123 Jalan Merdeka, Kuala Lumpur 50050',

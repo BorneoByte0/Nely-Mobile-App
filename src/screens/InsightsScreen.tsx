@@ -25,10 +25,13 @@ export function InsightsScreen({ navigation }: Props = {}) {
   const { elderlyProfiles, loading: profilesLoading, error: profilesError, refetch: refetchElderlyProfiles } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
   const { vitalSigns, loading: vitalsLoading, error: vitalsError, refetch: refetchVitalSigns } = useVitalSigns(currentElderly?.id || '');
-  const { medications, loading: medicationsLoading } = useMedications(currentElderly?.id || '');
+  const { medications: allMedications, loading: medicationsLoading } = useMedications(currentElderly?.id || '');
   const { appointments, loading: appointmentsLoading } = useAppointments(currentElderly?.id || '');
   const { careNotes, loading: notesLoading } = useNotes(currentElderly?.id || '');
   const { medicationTaken, loading: medicationTakenLoading } = useMedicationTaken(currentElderly?.id || '');
+
+  // Filter to only show active medications for insights
+  const medications = allMedications.filter(med => med.isActive);
 
   const isLoading = profilesLoading || vitalsLoading || medicationsLoading || appointmentsLoading || notesLoading || medicationTakenLoading;
 

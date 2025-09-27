@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Animated, BackHandler, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -345,7 +346,7 @@ function MedicationDetailsModal({
                   
                   {medication.status === 'taken' && medication.takenAt && (
                     <Text style={styles.medicationTakenTime}>
-                      {language === 'en' ? 'Taken at: ' : 'Diambil pada: '}{medication.takenAt}
+                      {language === 'en' ? 'Taken at: ' : 'Diambil pada: '}{formatTimeFromDate(medication.takenAt)}
                     </Text>
                   )}
                   
@@ -381,10 +382,12 @@ function combineAllActivities(vitalSigns: any, careNotes: any[], medicationTaken
 
   // Add vital signs activity
   if (vitalSigns && vitalSigns.lastRecorded) {
+    const timestamp = vitalSigns.lastRecorded;
     activities.push({
       id: `vital-${vitalSigns.id}`,
-      time: formatTimeFromDate(vitalSigns.lastRecorded),
-      date: formatDateFromDate(vitalSigns.lastRecorded),
+      time: formatTimeFromDate(timestamp),
+      date: formatDateFromDate(timestamp),
+      timestamp: timestamp, // Keep original timestamp for sorting
       type: 'vitals',
       title: language === 'en' ? `Vitals recorded by ${vitalSigns.recordedBy || 'Caregiver'}` : `Vital dicatat oleh ${vitalSigns.recordedBy || 'Penjaga'}`,
       details: `Blood pressure: ${vitalSigns.bloodPressure?.systolic || '--'}/${vitalSigns.bloodPressure?.diastolic || '--'} mmHg, Heart rate: ${vitalSigns.pulse?.value || '--'} bpm, SpO₂: ${vitalSigns.spO2?.value || '--'}%`,
@@ -395,10 +398,12 @@ function combineAllActivities(vitalSigns: any, careNotes: any[], medicationTaken
   // Add all care notes activities
   if (careNotes && careNotes.length > 0) {
     careNotes.forEach(note => {
+      const timestamp = note.dateCreated || note.created_at || note.date_created;
       activities.push({
         id: `note-${note.id}`,
-        time: formatTimeFromDate(note.dateCreated || note.created_at || note.date_created),
-        date: formatDateFromDate(note.dateCreated || note.created_at || note.date_created),
+        time: formatTimeFromDate(timestamp),
+        date: formatDateFromDate(timestamp),
+        timestamp: timestamp, // Keep original timestamp for sorting
         type: 'note',
         title: language === 'en' ? `Care note added by ${note.authorName || note.author_name || 'Caregiver'}` : `Nota penjagaan ditambah oleh ${note.authorName || note.author_name || 'Penjaga'}`,
         details: note.content || 'No details available',
@@ -410,10 +415,12 @@ function combineAllActivities(vitalSigns: any, careNotes: any[], medicationTaken
   // Add all medication taken activities
   if (medicationTaken && medicationTaken.length > 0) {
     medicationTaken.forEach(med => {
+      const timestamp = med.taken_at;
       activities.push({
         id: `medication-${med.id}`,
-        time: formatTimeFromDate(med.taken_at),
-        date: formatDateFromDate(med.taken_at),
+        time: formatTimeFromDate(timestamp),
+        date: formatDateFromDate(timestamp),
+        timestamp: timestamp, // Keep original timestamp for sorting
         type: 'medication',
         title: language === 'en' ? 'Medication taken' : 'Ubat telah diambil',
         details: `${med.medications?.name || 'Unknown medication'} ${med.medications?.dosage || ''}`,
@@ -422,8 +429,8 @@ function combineAllActivities(vitalSigns: any, careNotes: any[], medicationTaken
     });
   }
 
-  // Sort by date (most recent first)
-  return activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  // Sort by timestamp (most recent first) - use actual timestamp instead of formatted date
+  return activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
 
 // Helper function to combine and sort recent activities (top 2)
@@ -586,22 +593,43 @@ export function HomeScreen({ navigation }: Props) {
   // Get first elderly profile for demo (in real app, user would select)
   const currentElderly = elderlyProfiles[0];
   const { vitalSigns, loading: vitalsLoading, error: vitalsError, refetch: refetchVitalSigns } = useVitalSigns(currentElderly?.id || '');
-  const { medications, loading: medicationsLoading, error: medicationsError } = useMedications(currentElderly?.id || '');
-  const { careNotes, loading: notesLoading, error: notesError } = useCareNotes(currentElderly?.id || '');
-  const { medicationTaken, loading: medicationTakenLoading, error: medicationTakenError } = useMedicationTaken(currentElderly?.id || '');
+  const { medications: allMedications, loading: medicationsLoading, error: medicationsError, refetch: refetchMedications } = useMedications(currentElderly?.id || '');
+  const { careNotes, loading: notesLoading, error: notesError, refetch: refetchCareNotes } = useCareNotes(currentElderly?.id || '');
+  const { medicationTaken, loading: medicationTakenLoading, error: medicationTakenError, refetch: refetchMedicationTaken } = useMedicationTaken(currentElderly?.id || '');
+
+  // Filter to only show active medications for HomeScreen
+  const medications = allMedications.filter(med => med.isActive);
 
   // Show loading if any critical data is still loading
   const isDataLoading = elderlyLoading || userLoading || vitalsLoading || medicationsLoading;
+
+  // Auto-refresh when screen comes into focus (after taking medication)
+  useFocusEffect(
+    useCallback(() => {
+      if (currentElderly?.id) {
+        // Silently refresh medication taken data when returning to HomeScreen
+        // Use setTimeout to avoid immediate execution during mount
+        const timer = setTimeout(() => {
+          refetchMedicationTaken && refetchMedicationTaken();
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, [currentElderly?.id])
+  );
 
   const onRefresh = async () => {
     console.log('🔄 Starting refresh...');
     setRefreshing(true);
     try {
-      // Refetch all data
+      // Refetch all data that feeds recent activity
       await Promise.all([
         refetchElderlyProfiles(),
         refetchVitalSigns(),
-      ]);
+        refetchMedications && refetchMedications(),
+        refetchCareNotes && refetchCareNotes(),
+        refetchMedicationTaken && refetchMedicationTaken(),
+      ].filter(Boolean));
 
       console.log('✅ Refresh completed successfully');
       setRefreshing(false);
@@ -658,9 +686,17 @@ export function HomeScreen({ navigation }: Props) {
     );
   }
 
-  // Calculate medication progress from database data
-  const totalMeds = medications?.length || 0;
-  const takenMeds = medicationTaken?.length || 0;
+  // Calculate medication progress from database data (today only)
+  const today = new Date().toDateString();
+  const totalMeds = medications?.length || 0; // All active medications for today
+
+  // Count unique medications taken today (avoid double counting if taken multiple times)
+  const uniqueMedicationsTakenToday = new Set(
+    medicationTaken?.filter(taken =>
+      new Date(taken.taken_at).toDateString() === today
+    ).map(taken => taken.medication_id) || []
+  );
+  const takenMeds = uniqueMedicationsTakenToday.size;
 
   // Health alerts based on vital signs status
   const activeAlerts: any[] = [];

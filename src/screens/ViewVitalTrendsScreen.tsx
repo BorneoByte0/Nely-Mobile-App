@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LineChart } from 'react-native-chart-kit';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
 import { InteractiveFeedback } from '../components/InteractiveFeedback';
 import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
 import { hapticFeedback } from '../utils/haptics';
+import { useElderlyProfiles, useVitalSignsHistory } from '../hooks/useDatabase';
 
 const { width } = Dimensions.get('window');
 const chartWidth = width - 80;
@@ -20,6 +22,13 @@ interface TrendData {
   temperature: number;
   weight: number;
   bloodGlucose?: number;
+  bloodPressureStatus?: string;
+  spO2Status?: string;
+  pulseStatus?: string;
+  temperatureStatus?: string;
+  bloodGlucoseStatus?: string;
+  recordedBy?: string;
+  notes?: string;
 }
 
 interface Props {
@@ -36,16 +45,39 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | '3months'>('week');
   const [selectedVital, setSelectedVital] = useState<string>(route?.params?.vitalType || 'bloodPressure');
 
-  // Mock trend data for the last 7 days
-  const mockTrendData: TrendData[] = [
-    { date: '2024-09-02', systolic: 142, diastolic: 88, spO2: 97, pulse: 75, temperature: 36.4, weight: 65.2, bloodGlucose: 7.8 },
-    { date: '2024-09-03', systolic: 145, diastolic: 90, spO2: 98, pulse: 72, temperature: 36.5, weight: 65.1, bloodGlucose: 8.2 },
-    { date: '2024-09-04', systolic: 148, diastolic: 92, spO2: 97, pulse: 74, temperature: 36.6, weight: 65.0, bloodGlucose: 7.5 },
-    { date: '2024-09-05', systolic: 144, diastolic: 89, spO2: 98, pulse: 73, temperature: 36.4, weight: 64.9, bloodGlucose: 8.0 },
-    { date: '2024-09-06', systolic: 146, diastolic: 91, spO2: 98, pulse: 71, temperature: 36.5, weight: 64.8, bloodGlucose: 7.9 },
-    { date: '2024-09-07', systolic: 143, diastolic: 87, spO2: 97, pulse: 76, temperature: 36.3, weight: 64.9, bloodGlucose: 7.6 },
-    { date: '2024-09-08', systolic: 145, diastolic: 90, spO2: 98, pulse: 72, temperature: 36.5, weight: 65.0, bloodGlucose: 8.2 },
-  ];
+  // Get current elderly profile and vital signs history
+  const { elderlyProfiles, loading: profilesLoading, refetch: refetchProfiles } = useElderlyProfiles();
+  const currentElderly = elderlyProfiles[0];
+  const { vitalSignsHistory, loading: historyLoading, error: historyError, refetch: refetchHistory } = useVitalSignsHistory(currentElderly?.id || '', selectedPeriod);
+
+  // Pull to refresh state
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Handle pull to refresh
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Trigger haptic feedback
+      hapticFeedback.light();
+
+      // Refetch both profiles and vital signs history
+      await Promise.all([
+        refetchProfiles?.(),
+        refetchHistory?.()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Handle period change with refetch
+  const handlePeriodChange = (period: 'week' | 'month' | '3months') => {
+    setSelectedPeriod(period);
+    hapticFeedback.selection();
+    // History will automatically refetch due to useEffect dependency on selectedPeriod
+  };
 
   const vitalTypes = [
     { key: 'bloodPressure', label: language === 'en' ? 'Blood Pressure' : 'Tekanan Darah', icon: 'heart', color: colors.error },
@@ -65,14 +97,19 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
   const getVitalValue = (data: TrendData, vitalType: string) => {
     switch (vitalType) {
       case 'bloodPressure':
+        if (data.systolic === 0 || data.diastolic === 0) return 'N/A';
         return `${data.systolic}/${data.diastolic}`;
       case 'spO2':
+        if (data.spO2 === 0) return 'N/A';
         return `${data.spO2}%`;
       case 'pulse':
+        if (data.pulse === 0) return 'N/A';
         return `${data.pulse} bpm`;
       case 'temperature':
+        if (data.temperature === 0) return 'N/A';
         return `${data.temperature}°C`;
       case 'weight':
+        if (data.weight === 0) return 'N/A';
         return `${data.weight} kg`;
       case 'bloodGlucose':
         return data.bloodGlucose ? `${data.bloodGlucose} mmol/L` : 'N/A';
@@ -82,25 +119,32 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
   };
 
   const getStatusColor = (data: TrendData, vitalType: string) => {
+    let status = 'normal';
     switch (vitalType) {
       case 'bloodPressure':
-        if (data.systolic > 160 || data.diastolic > 100) return colors.error;
-        if (data.systolic > 140 || data.diastolic > 90) return colors.warning;
-        return colors.success;
+        status = data.bloodPressureStatus || 'normal';
+        break;
       case 'spO2':
-        if (data.spO2 < 90) return colors.error;
-        if (data.spO2 < 95) return colors.warning;
-        return colors.success;
+        status = data.spO2Status || 'normal';
+        break;
       case 'pulse':
-        if (data.pulse < 50 || data.pulse > 120) return colors.error;
-        if (data.pulse < 60 || data.pulse > 100) return colors.warning;
-        return colors.success;
+        status = data.pulseStatus || 'normal';
+        break;
       case 'temperature':
-        if (data.temperature > 38.5) return colors.error;
-        if (data.temperature > 37.5) return colors.warning;
-        return colors.success;
+        status = data.temperatureStatus || 'normal';
+        break;
+      case 'bloodGlucose':
+        status = data.bloodGlucoseStatus || 'normal';
+        break;
       default:
-        return colors.success;
+        status = 'normal';
+    }
+
+    switch (status) {
+      case 'critical': return colors.error;
+      case 'concerning': return colors.warning;
+      case 'normal': return colors.success;
+      default: return colors.success;
     }
   };
 
@@ -112,8 +156,19 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
     });
   };
 
+  const formatChartDate = (dateString: string) => {
+    const date = new Date(dateString);
+    // For chart labels, use shorter format
+    return date.toLocaleDateString('en-US', {
+      month: 'numeric',
+      day: 'numeric',
+    });
+  };
+
   const getAverageValue = (vitalType: string) => {
-    const values = mockTrendData.map(data => {
+    if (!vitalSignsHistory.length) return '--';
+
+    const values = vitalSignsHistory.map(data => {
       switch (vitalType) {
         case 'bloodPressure':
           return (data.systolic + data.diastolic) / 2;
@@ -130,55 +185,240 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
         default:
           return 0;
       }
-    });
-    
+    }).filter(val => val > 0);
+
+    if (values.length === 0) return '--';
+
     const average = values.reduce((sum, val) => sum + val, 0) / values.length;
     return average.toFixed(1);
   };
 
-  const renderSimpleChart = () => {
+  const getAlertCount = () => {
+    if (!vitalSignsHistory.length) return 0;
+
+    return vitalSignsHistory.filter(data => {
+      const statuses = [
+        data.bloodPressureStatus,
+        data.spO2Status,
+        data.pulseStatus,
+        data.temperatureStatus,
+        data.bloodGlucoseStatus
+      ];
+      return statuses.some(status => status === 'critical' || status === 'concerning');
+    }).length;
+  };
+
+  const renderLineChart = () => {
     const selectedVitalData = vitalTypes.find(v => v.key === selectedVital);
     if (!selectedVitalData) return null;
+
+    // Filter data based on selected vital to only show valid readings
+    const filteredData = vitalSignsHistory.filter(data => {
+      switch (selectedVital) {
+        case 'bloodPressure':
+          return data.systolic > 0 && data.diastolic > 0;
+        case 'spO2':
+          return data.spO2 > 0;
+        case 'pulse':
+          return data.pulse > 0;
+        case 'temperature':
+          return data.temperature > 0;
+        case 'weight':
+          return data.weight > 0;
+        case 'bloodGlucose':
+          return data.bloodGlucose && data.bloodGlucose > 0;
+        default:
+          return false;
+      }
+    });
+
+    if (filteredData.length < 2) {
+      return (
+        <View style={styles.chartContainer}>
+          <View style={styles.chartHeader}>
+            <Text style={styles.chartTitle}>{selectedVitalData.label}</Text>
+            <Text style={styles.chartSubtitle}>
+              {language === 'en'
+                ? `Last ${selectedPeriod === 'week' ? '7 days' : selectedPeriod === 'month' ? '30 days' : '3 months'}`
+                : `${selectedPeriod === 'week' ? '7 hari' : selectedPeriod === 'month' ? '30 hari' : '3 bulan'} terakhir`}
+            </Text>
+          </View>
+
+          <View style={styles.noDataContainer}>
+            <Ionicons name="analytics-outline" size={48} color={colors.textMuted} />
+            <Text style={styles.noDataText}>
+              {language === 'en'
+                ? filteredData.length === 0
+                  ? `No ${selectedVitalData.label.toLowerCase()} data available for selected period`
+                  : `Need at least 2 data points to display trends`
+                : filteredData.length === 0
+                  ? `Tiada data ${selectedVitalData.label.toLowerCase()} tersedia untuk tempoh yang dipilih`
+                  : `Perlu sekurang-kurangnya 2 data untuk memaparkan trend`}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    // Prepare data for LineChart
+    const getDataValues = () => {
+      switch (selectedVital) {
+        case 'bloodPressure':
+          return {
+            datasets: [
+              {
+                data: filteredData.map(d => d.systolic),
+                color: (opacity = 1) => `rgba(220, 38, 127, ${opacity})`, // Systolic (red)
+                strokeWidth: 2
+              },
+              {
+                data: filteredData.map(d => d.diastolic),
+                color: (opacity = 1) => `rgba(54, 162, 235, ${opacity})`, // Diastolic (blue)
+                strokeWidth: 2
+              }
+            ],
+            legend: ['Systolic', 'Diastolic']
+          };
+        case 'spO2':
+          return {
+            datasets: [{
+              data: filteredData.map(d => d.spO2),
+              color: (opacity = 1) => `rgba(75, 192, 192, ${opacity})`,
+              strokeWidth: 3
+            }]
+          };
+        case 'pulse':
+          return {
+            datasets: [{
+              data: filteredData.map(d => d.pulse),
+              color: (opacity = 1) => `rgba(153, 102, 255, ${opacity})`,
+              strokeWidth: 3
+            }]
+          };
+        case 'temperature':
+          return {
+            datasets: [{
+              data: filteredData.map(d => d.temperature),
+              color: (opacity = 1) => `rgba(255, 159, 64, ${opacity})`,
+              strokeWidth: 3
+            }]
+          };
+        case 'weight':
+          return {
+            datasets: [{
+              data: filteredData.map(d => d.weight),
+              color: (opacity = 1) => `rgba(255, 99, 132, ${opacity})`,
+              strokeWidth: 3
+            }]
+          };
+        case 'bloodGlucose':
+          return {
+            datasets: [{
+              data: filteredData.map(d => d.bloodGlucose || 0),
+              color: (opacity = 1) => `rgba(54, 235, 162, ${opacity})`,
+              strokeWidth: 3
+            }]
+          };
+        default:
+          return { datasets: [{ data: [0] }] };
+      }
+    };
+
+    const chartData = {
+      labels: filteredData.map(data => formatChartDate(data.date)),
+      ...getDataValues()
+    };
+
+    const chartConfig = {
+      backgroundColor: colors.white,
+      backgroundGradientFrom: colors.white,
+      backgroundGradientTo: colors.white,
+      decimalPlaces: selectedVital === 'temperature' ? 1 : 0,
+      color: (opacity = 1) => selectedVitalData.color + Math.floor(opacity * 255).toString(16).padStart(2, '0'),
+      labelColor: (opacity = 1) => colors.textSecondary + Math.floor(opacity * 255).toString(16).padStart(2, '0'),
+      style: {
+        borderRadius: 16,
+      },
+      propsForDots: {
+        r: "4",
+        strokeWidth: "2",
+        stroke: selectedVitalData.color
+      },
+      propsForBackgroundLines: {
+        stroke: colors.gray200,
+        strokeWidth: 1
+      }
+    };
 
     return (
       <View style={styles.chartContainer}>
         <View style={styles.chartHeader}>
           <Text style={styles.chartTitle}>{selectedVitalData.label}</Text>
           <Text style={styles.chartSubtitle}>
-            {language === 'en' ? 'Last 7 days' : '7 hari terakhir'}
+            {language === 'en'
+              ? `Last ${selectedPeriod === 'week' ? '7 days' : selectedPeriod === 'month' ? '30 days' : '3 months'}`
+              : `${selectedPeriod === 'week' ? '7 hari' : selectedPeriod === 'month' ? '30 hari' : '3 bulan'} terakhir`}
           </Text>
         </View>
-        
-        <View style={styles.chartArea}>
-          {mockTrendData.map((data, index) => {
-            const isLast = index === mockTrendData.length - 1;
-            return (
-              <View key={data.date} style={styles.chartPoint}>
-                <View style={styles.chartLine}>
-                  <View 
-                    style={[
-                      styles.chartDot, 
-                      { 
-                        backgroundColor: getStatusColor(data, selectedVital),
-                        transform: [{ scale: isLast ? 1.3 : 1 }]
-                      }
-                    ]} 
-                  />
-                  {index < mockTrendData.length - 1 && (
-                    <View style={styles.chartConnector} />
-                  )}
-                </View>
-                <Text style={styles.chartDate}>{formatDate(data.date)}</Text>
-                <Text style={[styles.chartValue, { color: getStatusColor(data, selectedVital) }]}>
-                  {getVitalValue(data, selectedVital)}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
+
+        <LineChart
+          data={chartData}
+          width={chartWidth}
+          height={220}
+          chartConfig={chartConfig}
+          bezier
+          style={styles.lineChart}
+          withInnerLines={true}
+          withOuterLines={true}
+          withVerticalLabels={true}
+          withHorizontalLabels={true}
+          fromZero={false}
+        />
       </View>
     );
   };
+
+  // Show loading state
+  if (profilesLoading || historyLoading) {
+    return (
+      <SafeAreaWrapper gradientVariant="insights" includeTabBarPadding={true}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>
+            {language === 'en' ? 'Loading vital signs trends...' : 'Memuatkan trend tanda vital...'}
+          </Text>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
+
+  // Show error state
+  if (historyError) {
+    return (
+      <SafeAreaWrapper gradientVariant="insights" includeTabBarPadding={true}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
+          <Text style={styles.errorText}>
+            {language === 'en' ? 'Error loading vital signs data' : 'Ralat memuatkan data tanda vital'}
+          </Text>
+          <Text style={styles.errorMessage}>{historyError}</Text>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
+
+  // Show no elderly profile state
+  if (!currentElderly) {
+    return (
+      <SafeAreaWrapper gradientVariant="insights" includeTabBarPadding={true}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="person-outline" size={48} color={colors.textMuted} />
+          <Text style={styles.errorText}>
+            {language === 'en' ? 'No elderly profile found' : 'Tiada profil warga emas dijumpai'}
+          </Text>
+        </View>
+      </SafeAreaWrapper>
+    );
+  }
 
   return (
     <SafeAreaWrapper gradientVariant="insights" includeTabBarPadding={true}>
@@ -214,7 +454,20 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
         </View>
       </LinearGradient>
 
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+            title={language === 'en' ? 'Pull to refresh' : 'Tarik untuk segar semula'}
+            titleColor={colors.textSecondary}
+          />
+        }
+      >
 
         {/* Period Selector */}
         <View style={styles.selectorContainer}>
@@ -225,10 +478,7 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
             {periods.map((period) => (
               <InteractiveFeedback
                 key={period.key}
-                onPress={() => {
-                  setSelectedPeriod(period.key as any);
-                  hapticFeedback.selection();
-                }}
+                onPress={() => handlePeriodChange(period.key as any)}
                 feedbackType="scale"
                 hapticType="light"
               >
@@ -250,7 +500,7 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
 
 
         {/* Chart */}
-        {renderSimpleChart()}
+        {renderLineChart()}
 
         {/* Statistics */}
         <View style={styles.statsContainer}>
@@ -270,16 +520,36 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
             </View>
             
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{mockTrendData.length}</Text>
+              <Text style={styles.statValue}>
+                {(() => {
+                  const filteredCount = vitalSignsHistory.filter(data => {
+                    switch (selectedVital) {
+                      case 'bloodPressure':
+                        return data.systolic > 0 && data.diastolic > 0;
+                      case 'spO2':
+                        return data.spO2 > 0;
+                      case 'pulse':
+                        return data.pulse > 0;
+                      case 'temperature':
+                        return data.temperature > 0;
+                      case 'weight':
+                        return data.weight > 0;
+                      case 'bloodGlucose':
+                        return data.bloodGlucose && data.bloodGlucose > 0;
+                      default:
+                        return false;
+                    }
+                  }).length;
+                  return filteredCount;
+                })()}
+              </Text>
               <Text style={styles.statLabel}>
                 {language === 'en' ? 'Readings' : 'Bacaan'}
               </Text>
             </View>
-            
+
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>
-                {Math.floor(Math.random() * 3) + 1}
-              </Text>
+              <Text style={styles.statValue}>{getAlertCount()}</Text>
               <Text style={styles.statLabel}>
                 {language === 'en' ? 'Alerts' : 'Amaran'}
               </Text>
@@ -296,19 +566,54 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
             </Text>
           </View>
           
-          {mockTrendData.slice(-3).reverse().map((data, index) => (
-            <View key={data.date} style={styles.recentItem}>
-              <View style={styles.recentDate}>
-                <Text style={styles.recentDateText}>{formatDate(data.date)}</Text>
-              </View>
-              <View style={styles.recentValue}>
-                <Text style={[styles.recentValueText, { color: getStatusColor(data, selectedVital) }]}>
-                  {getVitalValue(data, selectedVital)}
+          {(() => {
+            // Filter recent readings for selected vital
+            const filteredRecent = vitalSignsHistory.filter(data => {
+              switch (selectedVital) {
+                case 'bloodPressure':
+                  return data.systolic > 0 && data.diastolic > 0;
+                case 'spO2':
+                  return data.spO2 > 0;
+                case 'pulse':
+                  return data.pulse > 0;
+                case 'temperature':
+                  return data.temperature > 0;
+                case 'weight':
+                  return data.weight > 0;
+                case 'bloodGlucose':
+                  return data.bloodGlucose && data.bloodGlucose > 0;
+                default:
+                  return false;
+              }
+            }).slice(-3).reverse();
+
+            return filteredRecent.length > 0 ? (
+              filteredRecent.map((data, index) => (
+                <View key={data.date} style={styles.recentItem}>
+                  <View style={styles.recentDate}>
+                    <Text style={styles.recentDateText}>{formatDate(data.date)}</Text>
+                    <Text style={styles.recentTime}>
+                      {new Date(data.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  <View style={styles.recentValue}>
+                    <Text style={[styles.recentValueText, { color: getStatusColor(data, selectedVital) }]}>
+                      {getVitalValue(data, selectedVital)}
+                    </Text>
+                  </View>
+                  <View style={[styles.recentStatus, { backgroundColor: getStatusColor(data, selectedVital) }]} />
+                </View>
+              ))
+            ) : (
+              <View style={styles.noRecentContainer}>
+                <Text style={styles.noRecentText}>
+                  {language === 'en'
+                    ? `No recent ${vitalTypes.find(v => v.key === selectedVital)?.label.toLowerCase()} readings available`
+                    : `Tiada bacaan ${vitalTypes.find(v => v.key === selectedVital)?.label.toLowerCase()} terkini tersedia`}
                 </Text>
               </View>
-              <View style={[styles.recentStatus, { backgroundColor: getStatusColor(data, selectedVital) }]} />
-            </View>
-          ))}
+            );
+          })()}
         </View>
         
         <View style={styles.bottomPadding} />
@@ -420,47 +725,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
   },
-  chartArea: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    height: 120,
-  },
-  chartPoint: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  chartLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 60,
-    width: '100%',
-    justifyContent: 'center',
-  },
-  chartDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: colors.white,
-  },
-  chartConnector: {
-    height: 2,
-    backgroundColor: colors.gray300,
-    flex: 1,
-    marginLeft: 4,
-  },
-  chartDate: {
-    fontSize: 10,
-    color: colors.textMuted,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  chartValue: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 4,
-    textAlign: 'center',
+  lineChart: {
+    marginVertical: 8,
+    borderRadius: 16,
   },
   statsContainer: {
     backgroundColor: colors.white,
@@ -543,6 +810,11 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: '500',
   },
+  recentTime: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
   recentValue: {
     flex: 1,
     alignItems: 'center',
@@ -558,5 +830,59 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 24,
+  },
+  noDataContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noDataText: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: 12,
+    lineHeight: 20,
+  },
+  noRecentContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  noRecentText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });
