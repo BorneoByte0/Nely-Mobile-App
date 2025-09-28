@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -76,13 +77,37 @@ export function ManageAppointmentsScreen({ navigation }: Props) {
   const [selectedFilter, setSelectedFilter] = useState<'upcoming'>('upcoming');
   const { showWarning, showConfirm, showAlert, alertConfig, hideAlert, showSuccess, showError } = useModernAlert();
 
+  // Simple flag to track initial load
+  const isInitialMount = useRef(true);
+
   // Database hooks
-  const { elderlyProfiles, loading: profilesLoading } = useElderlyProfiles();
+  const { elderlyProfiles, loading: profilesLoading, refetch: refetchProfiles } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
-  const { appointments, loading: appointmentsLoading, error: appointmentsError } = useAppointments(currentElderly?.id || '');
+  const { appointments, loading: appointmentsLoading, error: appointmentsError, refetch: refetchAppointments } = useAppointments(currentElderly?.id || '');
   const { updateAppointment, loading: updateLoading } = useUpdateAppointment();
 
   const isLoading = profilesLoading || appointmentsLoading;
+
+  // Single refresh strategy: only refresh on focus, skip initial mount
+  useFocusEffect(
+    React.useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
+
+      // Simple refresh when returning to screen
+      if (currentElderly?.id) {
+        // Small delay to ensure everything is settled
+        const timer = setTimeout(() => {
+          refetchAppointments?.();
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, [currentElderly?.id])
+  );
 
   if (isLoading) {
     return (

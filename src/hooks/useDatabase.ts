@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import type { FamilyRole, FamilyMemberWithRole } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { ElderlyProfile, VitalSigns, Medication, User, FamilyMember, Appointment, CareNote } from '../types';
 
@@ -525,6 +526,7 @@ export const useAppointments = (elderlyId: string) => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
 
   useEffect(() => {
     if (!elderlyId) return;
@@ -532,6 +534,7 @@ export const useAppointments = (elderlyId: string) => {
     const fetchAppointments = async () => {
       try {
         setLoading(true);
+        setError(null);
         const { data, error } = await supabase
           .from('appointments')
           .select('*')
@@ -564,9 +567,14 @@ export const useAppointments = (elderlyId: string) => {
     };
 
     fetchAppointments();
-  }, [elderlyId]);
+  }, [elderlyId, refetchTrigger]);
 
-  return { appointments, loading, error };
+  const refetch = () => {
+    console.log('🔄 Refetching appointments...');
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { appointments, loading, error, refetch };
 };
 
 // Hook for fetching upcoming appointments
@@ -1088,6 +1096,373 @@ export const useDeleteAppointment = () => {
   };
 
   return { deleteAppointment, loading, error };
+};
+
+// Interface for appointment outcomes
+export interface AppointmentOutcome {
+  id: string;
+  appointmentId: string;
+  elderlyId: string;
+  diagnosis: string;
+  doctorNotes: string;
+  testResults?: string;
+  vitalSignsRecorded?: any;
+  newMedications?: string;
+  medicationChanges?: string;
+  prescriptions?: string;
+  recommendations?: string;
+  followUpInstructions?: string;
+  nextAppointmentRecommended: boolean;
+  nextAppointmentTimeframe?: string;
+  referrals?: string;
+  outcomeRecordedBy: string;
+  outcomeRecordedAt: string;
+  appointmentDurationMinutes?: number;
+  patientSatisfactionRating?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Hook for creating appointment outcomes
+export const useCreateAppointmentOutcome = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const createOutcome = async (outcomeData: {
+    appointmentId: string;
+    elderlyId: string;
+    diagnosis: string;
+    doctorNotes: string;
+    testResults?: string;
+    newMedications?: string;
+    prescriptions?: string;
+    recommendations?: string;
+    nextAppointmentRecommended?: boolean;
+    outcomeRecordedBy: string;
+  }) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data, error: insertError } = await supabase
+        .from('appointment_outcomes')
+        .insert([{
+          appointment_id: outcomeData.appointmentId,
+          elderly_id: outcomeData.elderlyId,
+          diagnosis: outcomeData.diagnosis,
+          doctor_notes: outcomeData.doctorNotes,
+          test_results: outcomeData.testResults,
+          new_medications: outcomeData.newMedications,
+          prescriptions: outcomeData.prescriptions,
+          recommendations: outcomeData.recommendations,
+          next_appointment_recommended: outcomeData.nextAppointmentRecommended || false,
+          outcome_recorded_by: outcomeData.outcomeRecordedBy,
+        }])
+        .select()
+        .single();
+
+      if (insertError) {
+        setError(insertError.message);
+        return null;
+      }
+
+      // Also update the appointment status to 'completed'
+      const { error: updateError } = await supabase
+        .from('appointments')
+        .update({ status: 'completed' })
+        .eq('id', outcomeData.appointmentId);
+
+      if (updateError) {
+        console.warn('Failed to update appointment status:', updateError.message);
+      }
+
+      return data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { createOutcome, loading, error };
+};
+
+// Hook for fetching appointment outcomes
+export const useAppointmentOutcomes = (elderlyId: string) => {
+  const [outcomes, setOutcomes] = useState<AppointmentOutcome[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  useEffect(() => {
+    if (!elderlyId) return;
+
+    const fetchOutcomes = async () => {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('appointment_outcomes')
+          .select(`
+            *,
+            appointments (
+              doctor_name,
+              clinic,
+              appointment_type,
+              date,
+              time
+            )
+          `)
+          .eq('elderly_id', elderlyId)
+          .order('outcome_recorded_at', { ascending: false });
+
+        if (error) {
+          setError(error.message);
+        } else {
+          const formattedOutcomes: AppointmentOutcome[] = data.map(outcome => ({
+            id: outcome.id,
+            appointmentId: outcome.appointment_id,
+            elderlyId: outcome.elderly_id,
+            diagnosis: outcome.diagnosis,
+            doctorNotes: outcome.doctor_notes,
+            testResults: outcome.test_results,
+            vitalSignsRecorded: outcome.vital_signs_recorded,
+            newMedications: outcome.new_medications,
+            medicationChanges: outcome.medication_changes,
+            prescriptions: outcome.prescriptions,
+            recommendations: outcome.recommendations,
+            followUpInstructions: outcome.follow_up_instructions,
+            nextAppointmentRecommended: outcome.next_appointment_recommended,
+            nextAppointmentTimeframe: outcome.next_appointment_timeframe,
+            referrals: outcome.referrals,
+            outcomeRecordedBy: outcome.outcome_recorded_by,
+            outcomeRecordedAt: outcome.outcome_recorded_at,
+            appointmentDurationMinutes: outcome.appointment_duration_minutes,
+            patientSatisfactionRating: outcome.patient_satisfaction_rating,
+            createdAt: outcome.created_at,
+            updatedAt: outcome.updated_at,
+          }));
+          setOutcomes(formattedOutcomes);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOutcomes();
+  }, [elderlyId, refetchTrigger]);
+
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { outcomes, loading, error, refetch };
+};
+
+// Family Role Management Hooks
+
+// Hook to get current user's role in their family
+export const useUserFamilyRole = () => {
+  const [role, setRole] = useState<FamilyRole | 'none'>('none');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      try {
+        setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setRole('none');
+          return;
+        }
+
+        // Get user's family info
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('family_id')
+          .eq('id', user.id)
+          .single();
+
+        if (userError || !userData?.family_id) {
+          setRole('none');
+          return;
+        }
+
+        // Get user's role in the family
+        const { data: roleData, error: roleError } = await supabase
+          .from('user_family_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('family_id', userData.family_id)
+          .eq('is_active', true)
+          .single();
+
+        if (roleError || !roleData) {
+          setRole('none');
+        } else {
+          setRole(roleData.role as FamilyRole);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+        setRole('none');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserRole();
+  }, []);
+
+  return { role, loading, error };
+};
+
+// Hook to get all family members with their roles
+export const useFamilyMembersWithRoles = (familyId: string) => {
+  const [members, setMembers] = useState<FamilyMemberWithRole[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  useEffect(() => {
+    if (!familyId) return;
+
+    const fetchFamilyMembers = async () => {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase.rpc('get_family_members_with_roles', {
+          p_family_id: familyId
+        });
+
+        if (error) {
+          setError(error.message);
+        } else {
+          const formattedMembers: FamilyMemberWithRole[] = data.map((member: any) => ({
+            userId: member.user_id,
+            name: member.name,
+            email: member.email,
+            role: member.role as FamilyRole | 'none',
+            isElderly: member.is_elderly,
+            assignedAt: member.assigned_at,
+            assignedByName: member.assigned_by_name,
+          }));
+          setMembers(formattedMembers);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchFamilyMembers();
+  }, [familyId, refetchTrigger]);
+
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { members, loading, error, refetch };
+};
+
+// Hook to update a user's family role (admin only)
+export const useUpdateUserFamilyRole = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const updateRole = async (
+    targetUserId: string,
+    familyId: string,
+    newRole: FamilyRole
+  ) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setError('Authentication required');
+        return null;
+      }
+
+      const { data, error: rpcError } = await supabase.rpc('update_user_family_role', {
+        p_target_user_id: targetUserId,
+        p_family_id: familyId,
+        p_new_role: newRole,
+        p_admin_user_id: user.id
+      });
+
+      if (rpcError) {
+        setError(rpcError.message);
+        return null;
+      }
+
+      return data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { updateRole, loading, error };
+};
+
+// Hook to check if current user has admin privileges
+export const useIsCurrentUserAdmin = () => {
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      try {
+        setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setIsAdmin(false);
+          return;
+        }
+
+        // Get user's family info
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('family_id')
+          .eq('id', user.id)
+          .single();
+
+        if (userError || !userData?.family_id) {
+          setIsAdmin(false);
+          return;
+        }
+
+        // Check if user is admin in their family
+        const { data: adminData, error: adminError } = await supabase.rpc('is_family_admin', {
+          p_user_id: user.id,
+          p_family_id: userData.family_id
+        });
+
+        if (adminError) {
+          setError(adminError.message);
+          setIsAdmin(false);
+        } else {
+          setIsAdmin(adminData);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+        setIsAdmin(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAdminStatus();
+  }, []);
+
+  return { isAdmin, loading, error };
 };
 
 // Hook for deleting medications

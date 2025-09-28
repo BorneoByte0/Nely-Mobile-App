@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -18,7 +19,9 @@ interface Props {
 
 export function ViewAllNotesScreen({ navigation }: Props) {
   const { language } = useLanguage();
-  const [refreshing, setRefreshing] = useState(false);
+
+  // Simple flag to track initial load
+  const isInitialMount = useRef(true);
 
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading, error: profilesError, refetch: refetchProfiles } = useElderlyProfiles();
@@ -29,22 +32,25 @@ export function ViewAllNotesScreen({ navigation }: Props) {
   const displayNotes = careNotes;
   const isLoading = profilesLoading || notesLoading;
 
-  const onRefresh = async () => {
-    console.log('🔄 Starting care notes refresh...');
-    setRefreshing(true);
-    try {
-      // Refetch both profiles and notes
-      await Promise.all([
-        refetchProfiles(),
-        refetchNotes(),
-      ]);
-      console.log('✅ Care notes refresh completed successfully');
-    } catch (error) {
-      console.log('❌ Care notes refresh error:', error);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  // Simplified auto-refresh: only refresh on focus, skip initial mount
+  useFocusEffect(
+    useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
+
+      // Simple refresh when returning to screen
+      if (currentElderly?.id) {
+        const timer = setTimeout(() => {
+          refetchNotes?.();
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, [currentElderly?.id])
+  );
   
   const formatTime = (dateString: string) => {
     if (!dateString) return language === 'en' ? 'Unknown' : 'Tidak diketahui';
@@ -129,14 +135,6 @@ export function ViewAllNotesScreen({ navigation }: Props) {
     <SafeAreaWrapper gradientVariant="note" includeTabBarPadding={true}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        }
       >
         {/* Modern Gradient Header */}
         <LinearGradient

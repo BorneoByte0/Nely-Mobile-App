@@ -133,12 +133,16 @@ export function CompletedAppointmentsScreen({ navigation }: Props) {
 
   const handleAppointmentPress = (appointment: any) => {
     hapticFeedback.light();
-    if (appointment.hasOutcome) {
-      navigation.navigate('AppointmentCompleted', { appointmentId: appointment.id });
-    } else {
-      // Show basic appointment details for appointments without detailed outcomes
-      navigation.navigate('ManageAppointments');
-    }
+    // Navigate to AppointmentCompletedScreen to view the appointment summary
+    navigation.navigate('AppointmentCompleted', {
+      appointmentId: appointment.id,
+      doctorName: appointment.doctorName,
+      appointmentType: appointment.appointmentType,
+      clinic: appointment.clinic,
+      date: appointment.date,
+      time: appointment.time,
+      notes: appointment.notes
+    });
   };
 
   const filteredAppointments = getFilteredAppointments();

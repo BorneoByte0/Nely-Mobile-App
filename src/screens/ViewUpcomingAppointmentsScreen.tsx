@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -7,7 +8,7 @@ import { InteractiveFeedback } from '../components/InteractiveFeedback';
 import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
 import { hapticFeedback } from '../utils/haptics';
-import { useElderlyProfiles, useUpcomingAppointments } from '../hooks/useDatabase';
+import { useElderlyProfiles, useAppointments } from '../hooks/useDatabase';
 import { HealthLoadingState } from '../components/HealthLoadingState';
 import { ErrorState } from '../components/ErrorState';
 
@@ -15,67 +16,46 @@ interface Props {
   navigation: any;
 }
 
-// Extended mock appointments data - upcoming only
-const upcomingAppointments = [
-  {
-    id: 'apt-001',
-    doctorName: 'Dr. Ahmad Rahman',
-    clinic: 'Kuala Lumpur General Hospital',
-    appointmentType: 'Regular Checkup',
-    date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-    time: '10:30 AM',
-    notes: 'Bring previous blood test results',
-    status: 'upcoming',
-  },
-  {
-    id: 'apt-002',
-    doctorName: 'Dr. Siti Nurhaliza',
-    clinic: 'Bandar Health Clinic',
-    appointmentType: 'Follow-up',
-    date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    time: '2:00 PM',
-    notes: '',
-    status: 'upcoming',
-  },
-  {
-    id: 'apt-003',
-    doctorName: 'Dr. Lim Wei Ming',
-    clinic: 'Petaling Jaya Medical Centre',
-    appointmentType: 'Specialist Consultation',
-    date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-    time: '9:15 AM',
-    notes: 'Cardiology consultation',
-    status: 'upcoming',
-  },
-  {
-    id: 'apt-006',
-    doctorName: 'Dr. Sarah Abdullah',
-    clinic: 'Subang Jaya Medical Centre',
-    appointmentType: 'Eye Examination',
-    date: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString(),
-    time: '11:00 AM',
-    notes: 'Annual eye check',
-    status: 'upcoming',
-  },
-  {
-    id: 'apt-007',
-    doctorName: 'Dr. Raj Kumar',
-    clinic: 'University Malaya Medical Centre',
-    appointmentType: 'Physical Therapy',
-    date: new Date(Date.now() + 28 * 24 * 60 * 60 * 1000).toISOString(),
-    time: '3:30 PM',
-    notes: 'Knee rehabilitation session',
-    status: 'upcoming',
-  },
-];
-
 export function ViewUpcomingAppointmentsScreen({ navigation }: Props) {
   const { language } = useLanguage();
+
+  // Simple flag to track initial load
+  const isInitialMount = useRef(true);
 
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
-  const { appointments, loading: appointmentsLoading, error: appointmentsError } = useUpcomingAppointments(currentElderly?.id || '', 10);
+  const { appointments, loading: appointmentsLoading, error: appointmentsError, refetch: refetchAppointments } = useAppointments(currentElderly?.id || '');
+
+  // Filter to show upcoming appointments only (future dates)
+  const upcomingAppointments = appointments.filter(appointment => {
+    const appointmentDate = new Date(appointment.date + ' ' + appointment.time);
+    return appointmentDate > new Date() && appointment.status === 'upcoming';
+  }).sort((a, b) => {
+    const dateA = new Date(a.date + ' ' + a.time);
+    const dateB = new Date(b.date + ' ' + b.time);
+    return dateA.getTime() - dateB.getTime();
+  });
+
+  // Simplified auto-refresh: only refresh on focus, skip initial mount
+  useFocusEffect(
+    useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
+
+      // Simple refresh when returning to screen
+      if (currentElderly?.id) {
+        const timer = setTimeout(() => {
+          refetchAppointments?.();
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, [currentElderly?.id])
+  );
 
   const isLoading = profilesLoading || appointmentsLoading;
 
@@ -136,10 +116,6 @@ export function ViewUpcomingAppointmentsScreen({ navigation }: Props) {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  // Sort appointments by date (earliest first)
-  const sortedAppointments = [...appointments].sort((a, b) =>
-    new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
 
   return (
     <SafeAreaWrapper gradientVariant="insights" includeTabBarPadding={true}>
@@ -182,7 +158,7 @@ export function ViewUpcomingAppointmentsScreen({ navigation }: Props) {
             <View style={styles.statIcon}>
               <Ionicons name="calendar-outline" size={24} color={colors.primary} />
             </View>
-            <Text style={styles.statValue}>{sortedAppointments.length}</Text>
+            <Text style={styles.statValue}>{upcomingAppointments.length}</Text>
             <Text style={styles.statLabel}>
               {language === 'en' ? 'Upcoming Appointments' : 'Temujanji Akan Datang'}
             </Text>
@@ -191,7 +167,7 @@ export function ViewUpcomingAppointmentsScreen({ navigation }: Props) {
 
         {/* Appointments List */}
         <View style={styles.appointmentsContainer}>
-          {sortedAppointments.map((appointment, index) => {
+          {upcomingAppointments.map((appointment, index) => {
             const daysUntil = getDaysUntilAppointment(appointment.date);
             const isUrgent = daysUntil <= 3;
             
@@ -261,7 +237,7 @@ export function ViewUpcomingAppointmentsScreen({ navigation }: Props) {
           })}
         </View>
 
-        {sortedAppointments.length === 0 && (
+        {upcomingAppointments.length === 0 && (
           <View style={styles.emptyContainer}>
             <Ionicons name="calendar-outline" size={48} color={colors.textMuted} />
             <Text style={styles.emptyTitle}>

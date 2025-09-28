@@ -1,4 +1,29 @@
 // Core Types for Nely MVP
+
+// Family Role System Types
+export type FamilyRole = 'admin' | 'carer' | 'family_viewer';
+
+export interface UserFamilyRole {
+  id: string;
+  userId: string;
+  familyId: string;
+  role: FamilyRole;
+  assignedBy?: string;
+  assignedAt: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FamilyMemberWithRole {
+  userId: string;
+  name: string;
+  email: string;
+  role: FamilyRole | 'none';
+  isElderly: boolean;
+  assignedAt?: string;
+  assignedByName?: string;
+}
 export interface ElderlyProfile {
   id: string;
   name: string;

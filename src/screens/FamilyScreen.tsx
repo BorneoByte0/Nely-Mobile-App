@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Image } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -10,7 +11,7 @@ import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
 import { useModernAlert } from '../hooks/useModernAlert';
 import { hapticFeedback, healthStatusHaptics } from '../utils/haptics';
-import { useElderlyProfiles, useVitalSigns, useCareNotes, useMedications } from '../hooks/useDatabase';
+import { useElderlyProfiles, useVitalSigns, useCareNotes, useMedications, useAppointments } from '../hooks/useDatabase';
 import { HealthLoadingState } from '../components/HealthLoadingState';
 import { ErrorState } from '../components/ErrorState';
 
@@ -22,7 +23,6 @@ export function FamilyScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const { alertConfig, visible, showAlert, hideAlert, showSuccess, showError, showWarning, showInfo } = useModernAlert();
   const [modalVisible, setModalVisible] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedVital, setSelectedVital] = useState<{
     type: 'bloodPressure' | 'spO2' | 'pulse' | 'bloodGlucose';
     value: string;
@@ -30,18 +30,56 @@ export function FamilyScreen({ navigation }: Props) {
     status: 'normal' | 'concerning' | 'critical';
   } | null>(null);
 
+  // Simple flag to track initial load
+  const isInitialMount = useRef(true);
+
   // Database hooks
   const { elderlyProfiles, loading: elderlyLoading, error: elderlyError, refetch: refetchElderlyProfiles } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0]; // For demo, use first elderly profile
   const { vitalSigns, loading: vitalsLoading, error: vitalsError, refetch: refetchVitalSigns } = useVitalSigns(currentElderly?.id || '');
   const { careNotes, loading: notesLoading, error: notesError, refetch: refetchCareNotes } = useCareNotes(currentElderly?.id || '');
   const { medications: allMedications, loading: medicationsLoading, error: medicationsError, refetch: refetchMedications } = useMedications(currentElderly?.id || '');
+  const { appointments, loading: appointmentsLoading, error: appointmentsError, refetch: refetchAppointments } = useAppointments(currentElderly?.id || '');
 
   // Filter to only show active medications in family overview
   const medications = allMedications.filter(med => med.isActive);
 
+  // Filter to show upcoming appointments only (future dates and not completed)
+  const upcomingAppointments = appointments.filter(appointment => {
+    const appointmentDate = new Date(appointment.date + ' ' + appointment.time);
+    return appointmentDate > new Date() && appointment.status === 'upcoming';
+  }).sort((a, b) => {
+    const dateA = new Date(a.date + ' ' + a.time);
+    const dateB = new Date(b.date + ' ' + b.time);
+    return dateA.getTime() - dateB.getTime();
+  });
 
-  const isDataLoading = elderlyLoading || vitalsLoading || notesLoading || medicationsLoading;
+  // Simplified auto-refresh: only refresh on focus, skip initial mount
+  useFocusEffect(
+    useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
+
+      // Simple refresh when returning to screen
+      if (currentElderly?.id) {
+        const timer = setTimeout(() => {
+          // Refresh key data when returning to family screen
+          refetchElderlyProfiles?.(); // Refresh elderly profile data (for edit profile updates)
+          refetchVitalSigns?.();
+          refetchCareNotes?.();
+          refetchMedications?.();
+          refetchAppointments?.(); // Refresh appointments data
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, [currentElderly?.id])
+  );
+
+  const isDataLoading = elderlyLoading || vitalsLoading || notesLoading || medicationsLoading || appointmentsLoading;
 
   if (isDataLoading) {
     return (
@@ -82,32 +120,6 @@ export function FamilyScreen({ navigation }: Props) {
     );
   }
 
-  const onRefresh = async () => {
-    console.log('🔄 Starting family screen refresh...');
-    setRefreshing(true);
-    try {
-      // Refetch all data
-      await Promise.all([
-        refetchElderlyProfiles(),
-        refetchVitalSigns(),
-        refetchCareNotes(),
-        refetchMedications(),
-      ]);
-
-      console.log('✅ Family screen refresh completed successfully');
-      setRefreshing(false);
-    } catch (error) {
-      console.log('❌ Family screen refresh error:', error);
-      setRefreshing(false);
-      showError(
-        language === 'en' ? 'Refresh Failed' : 'Gagal Muat Semula',
-        language === 'en'
-          ? 'Unable to refresh family data. Please check your connection and try again.'
-          : 'Tidak dapat memuat semula data keluarga. Sila periksa sambungan anda dan cuba lagi.'
-      );
-    }
-  };
-
   const handleVitalPress = (
     type: 'bloodPressure' | 'spO2' | 'pulse' | 'bloodGlucose',
     value: string,
@@ -133,17 +145,9 @@ export function FamilyScreen({ navigation }: Props) {
   
   return (
     <SafeAreaWrapper gradientVariant="family" includeTabBarPadding={true}>
-      <ScrollView 
-        style={styles.container} 
+      <ScrollView
+        style={styles.container}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        }
       >
         {/* Modern Gradient Profile Header */}
         <LinearGradient
@@ -500,12 +504,46 @@ export function FamilyScreen({ navigation }: Props) {
             </TouchableOpacity>
           </View>
           
-          <View style={styles.noMedicationsContainer}>
-            <Ionicons name="calendar-outline" size={24} color={colors.textMuted} />
-            <Text style={styles.noMedicationsText}>
-              {language === 'en' ? 'No upcoming appointments' : 'Tiada temujanji akan datang'}
-            </Text>
-          </View>
+          {upcomingAppointments.length > 0 ? (
+            upcomingAppointments.slice(0, 2).map((appointment, index) => (
+              <View key={appointment.id} style={[
+                styles.appointmentItem,
+                index === upcomingAppointments.slice(0, 2).length - 1 && styles.lastAppointmentItem
+              ]}>
+                <View style={styles.appointmentDate}>
+                  <Text style={styles.appointmentDay}>
+                    {getDay(appointment.date)}
+                  </Text>
+                  <Text style={styles.appointmentMonth}>
+                    {getMonth(appointment.date, language)}
+                  </Text>
+                </View>
+                <View style={styles.appointmentDetails}>
+                  <Text style={styles.appointmentDoctor}>
+                    {appointment.doctorName || (language === 'en' ? 'Doctor Appointment' : 'Temujanji Doktor')}
+                  </Text>
+                  <Text style={styles.appointmentClinic}>
+                    {appointment.clinic || (language === 'en' ? 'Healthcare facility' : 'Kemudahan kesihatan')}
+                  </Text>
+                  <Text style={styles.appointmentTime}>
+                    {formatAppointmentTime(appointment.time)} • {formatAppointmentDate(appointment.date, language)}
+                  </Text>
+                  {appointment.notes && (
+                    <Text style={styles.appointmentNotes}>
+                      {appointment.notes}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.noMedicationsContainer}>
+              <Ionicons name="calendar-outline" size={24} color={colors.textMuted} />
+              <Text style={styles.noMedicationsText}>
+                {language === 'en' ? 'No upcoming appointments' : 'Tiada temujanji akan datang'}
+              </Text>
+            </View>
+          )}
           
           {/* View Upcoming and Completed Buttons */}
           <View style={styles.appointmentFooter}>
@@ -670,6 +708,53 @@ export function FamilyScreen({ navigation }: Props) {
       )}
     </SafeAreaWrapper>
   );
+}
+
+// Helper functions for appointments
+function formatAppointmentTime(timeString: string): string {
+  if (!timeString) return '--:--';
+  try {
+    // If it's already in HH:MM format, return as is
+    if (timeString.match(/^\d{2}:\d{2}$/)) {
+      return timeString;
+    }
+    // Parse and format time
+    const date = new Date(`1970-01-01T${timeString}`);
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+  } catch {
+    return timeString;
+  }
+}
+
+function formatAppointmentDate(dateString: string, language: string): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const dateStr = date.toDateString();
+    const todayStr = today.toDateString();
+    const tomorrowStr = tomorrow.toDateString();
+
+    if (dateStr === todayStr) {
+      return language === 'en' ? 'Today' : 'Hari ini';
+    } else if (dateStr === tomorrowStr) {
+      return language === 'en' ? 'Tomorrow' : 'Esok';
+    } else {
+      return date.toLocaleDateString(language === 'en' ? 'en-US' : 'ms-MY', {
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+  } catch {
+    return dateString;
+  }
 }
 
 // Helper functions

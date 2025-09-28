@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Animated, BackHandler, RefreshControl } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Animated, BackHandler } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -579,12 +579,14 @@ export function HomeScreen({ navigation }: Props) {
   const [activityModalVisible, setActivityModalVisible] = useState(false);
   const [medicationModalVisible, setMedicationModalVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastConfig, setToastConfig] = useState<{
     type: 'success' | 'error' | 'warning' | 'info';
     message: string;
   }>({ type: 'success', message: '' });
+
+  // Simple flag to track initial load
+  const isInitialMount = useRef(true);
 
   // Database hooks
   const { elderlyProfiles, loading: elderlyLoading, error: elderlyError, refetch: refetchElderlyProfiles } = useElderlyProfiles();
@@ -603,14 +605,24 @@ export function HomeScreen({ navigation }: Props) {
   // Show loading if any critical data is still loading
   const isDataLoading = elderlyLoading || userLoading || vitalsLoading || medicationsLoading;
 
-  // Auto-refresh when screen comes into focus (after taking medication)
+  // Simplified auto-refresh: only refresh on focus, skip initial mount
   useFocusEffect(
     useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
+
+      // Simple refresh when returning to screen - refresh all key data
       if (currentElderly?.id) {
-        // Silently refresh medication taken data when returning to HomeScreen
-        // Use setTimeout to avoid immediate execution during mount
         const timer = setTimeout(() => {
-          refetchMedicationTaken && refetchMedicationTaken();
+          // Refresh vitals (for Record Vitals quick action)
+          refetchVitalSigns?.();
+          // Refresh medication taken data
+          refetchMedicationTaken?.();
+          // Refresh care notes
+          refetchCareNotes?.();
         }, 100);
 
         return () => clearTimeout(timer);
@@ -618,32 +630,6 @@ export function HomeScreen({ navigation }: Props) {
     }, [currentElderly?.id])
   );
 
-  const onRefresh = async () => {
-    console.log('🔄 Starting refresh...');
-    setRefreshing(true);
-    try {
-      // Refetch all data that feeds recent activity
-      await Promise.all([
-        refetchElderlyProfiles(),
-        refetchVitalSigns(),
-        refetchMedications && refetchMedications(),
-        refetchCareNotes && refetchCareNotes(),
-        refetchMedicationTaken && refetchMedicationTaken(),
-      ].filter(Boolean));
-
-      console.log('✅ Refresh completed successfully');
-      setRefreshing(false);
-    } catch (error) {
-      console.log('❌ Refresh error:', error);
-      setRefreshing(false);
-      showError(
-        language === 'en' ? 'Refresh Failed' : 'Gagal Muat Semula',
-        language === 'en'
-          ? 'Unable to refresh data. Please check your connection and try again.'
-          : 'Tidak dapat memuat semula data. Sila periksa sambungan anda dan cuba lagi.'
-      );
-    }
-  };
 
 
   // Handle loading and error states
@@ -794,14 +780,6 @@ export function HomeScreen({ navigation }: Props) {
         removeClippedSubviews={true}
         keyboardShouldPersistTaps="handled"
         scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
-          />
-        }
       >
         {/* Modern Header Section */}
         <LinearGradient

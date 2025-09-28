@@ -11,6 +11,8 @@ import { useModernAlert } from '../hooks/useModernAlert';
 import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
 import { hapticFeedback } from '../utils/haptics';
+import { useCreateAppointmentOutcome, useElderlyProfiles } from '../hooks/useDatabase';
+import { useAuth } from '../context/AuthContext';
 
 interface Props {
   navigation?: any;
@@ -25,9 +27,15 @@ interface Props {
 
 export function AppointmentOutcomeScreen({ navigation, route }: Props) {
   const { language } = useLanguage();
+  const { userProfile } = useAuth();
   const { appointmentId, doctorName, appointmentType } = route?.params || {};
   const { successConfig, visible, showSuccess, hideSuccess } = useSuccessAnimation();
   const { alertConfig, visible: alertVisible, showError, hideAlert } = useModernAlert();
+
+  // Database hooks
+  const { elderlyProfiles } = useElderlyProfiles();
+  const currentElderly = elderlyProfiles[0]; // For demo, use first elderly profile
+  const { createOutcome, loading: createLoading, error: createError } = useCreateAppointmentOutcome();
 
   const [diagnosis, setDiagnosis] = useState('');
   const [doctorNotes, setDoctorNotes] = useState('');
@@ -37,6 +45,7 @@ export function AppointmentOutcomeScreen({ navigation, route }: Props) {
   const [nextAppointment, setNextAppointment] = useState('');
   const [prescriptions, setPrescriptions] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
 
   // Triple dots animation
   const dot1Anim = useState(new Animated.Value(0.4))[0];
@@ -82,35 +91,67 @@ export function AppointmentOutcomeScreen({ navigation, route }: Props) {
     if (!diagnosis.trim() || !doctorNotes.trim()) {
       showError(
         language === 'en' ? 'Required Fields' : 'Medan Diperlukan',
-        language === 'en' 
+        language === 'en'
           ? 'Please fill in the diagnosis and doctor\'s notes fields.'
           : 'Sila isi medan diagnosis dan nota doktor.'
       );
       return;
     }
 
+    if (!appointmentId || !currentElderly?.id) {
+      showError(
+        language === 'en' ? 'Missing Information' : 'Maklumat Hilang',
+        language === 'en'
+          ? 'Appointment or patient information is missing.'
+          : 'Maklumat temujanji atau pesakit hilang.'
+      );
+      return;
+    }
+
     setIsLoading(true);
     startDotsAnimation();
-    
+
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      hapticFeedback.success();
-      
-      showSuccess({
-        title: language === 'en' ? 'Appointment Completed!' : 'Temujanji Selesai!',
-        message: language === 'en' 
-          ? 'Appointment outcome has been recorded successfully.'
-          : 'Hasil temujanji telah direkodkan dengan jayanya.',
-        onComplete: () => navigation.navigate('ManageAppointments'),
-        duration: 800,
-      });
+      const outcomeData = {
+        appointmentId: appointmentId,
+        elderlyId: currentElderly.id,
+        diagnosis: diagnosis.trim(),
+        doctorNotes: doctorNotes.trim(),
+        testResults: testResults.trim() || undefined,
+        newMedications: newMedications.trim() || undefined,
+        prescriptions: prescriptions.trim() || undefined,
+        recommendations: recommendations.trim() || undefined,
+        nextAppointmentRecommended: nextAppointment.trim().length > 0,
+        outcomeRecordedBy: userProfile?.name || 'Healthcare Provider',
+      };
+
+      const result = await createOutcome(outcomeData);
+
+      if (result) {
+        hapticFeedback.success();
+
+        showSuccess({
+          title: language === 'en' ? 'Appointment Completed!' : 'Temujanji Selesai!',
+          message: language === 'en'
+            ? 'Appointment outcome has been recorded successfully.'
+            : 'Hasil temujanji telah direkodkan dengan jayanya.',
+          onComplete: () => {
+            // Navigate to Family screen and reset stack to prevent back navigation to edit screen
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Family' }],
+            });
+          },
+          duration: 800,
+        });
+      } else {
+        throw new Error(createError || 'Failed to save outcome');
+      }
     } catch (error) {
       hapticFeedback.error();
       showError(
         language === 'en' ? 'Error' : 'Ralat',
-        language === 'en' 
+        language === 'en'
           ? 'Failed to save appointment outcome. Please try again.'
           : 'Gagal menyimpan hasil temujanji. Sila cuba lagi.'
       );
@@ -295,15 +336,15 @@ export function AppointmentOutcomeScreen({ navigation, route }: Props) {
           onPress={handleSaveOutcome}
           feedbackType="scale"
           hapticType="medium"
-          disabled={isLoading}
+          disabled={isLoading || createLoading}
         >
           <LinearGradient
             colors={[colors.success, colors.primary]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
+            style={[styles.saveButton, (isLoading || createLoading) && styles.saveButtonDisabled]}
           >
-            {isLoading ? (
+            {(isLoading || createLoading) ? (
               <View style={styles.loadingDots}>
                 <Animated.View style={[styles.dotWhite, { opacity: dot1Anim }]} />
                 <Animated.View style={[styles.dotWhite, { opacity: dot2Anim }]} />

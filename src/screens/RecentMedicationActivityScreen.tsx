@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -29,7 +30,9 @@ interface MedicationActivity {
 export function RecentMedicationActivityScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'today' | 'week'>('all');
-  const [refreshing, setRefreshing] = useState(false);
+
+  // Simple flag to track initial load
+  const isInitialMount = useRef(true);
 
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading, error: profilesError, refetch: refetchProfiles } = useElderlyProfiles();
@@ -38,23 +41,25 @@ export function RecentMedicationActivityScreen({ navigation }: Props) {
 
   const isLoading = profilesLoading || medicationTakenLoading;
 
-  // Pull to refresh function
-  const onRefresh = async () => {
-    try {
-      setRefreshing(true);
-      hapticFeedback.light();
+  // Simplified auto-refresh: only refresh on focus, skip initial mount
+  useFocusEffect(
+    useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
 
-      // Refetch all data
-      await Promise.all([
-        refetchProfiles && refetchProfiles(),
-        refetchMedicationTaken && refetchMedicationTaken()
-      ]);
-    } catch (error) {
-      console.error('Error refreshing medication activity:', error);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+      // Simple refresh when returning to screen
+      if (currentElderly?.id) {
+        const timer = setTimeout(() => {
+          refetchMedicationTaken?.();
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, [currentElderly?.id])
+  );
 
   // Mock recent medication activity data
   const recentActivity: MedicationActivity[] = [
@@ -211,17 +216,7 @@ export function RecentMedicationActivityScreen({ navigation }: Props) {
 
   return (
     <SafeAreaWrapper gradientVariant="family" includeTabBarPadding={true}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-            title={language === 'en' ? 'Pull to refresh' : 'Tarik untuk muat semula'}
-            titleColor={colors.textSecondary}
-          />
-        }
+      <ScrollView showsVerticalScrollIndicator={false}
       >
         {/* Modern Gradient Header */}
         <LinearGradient

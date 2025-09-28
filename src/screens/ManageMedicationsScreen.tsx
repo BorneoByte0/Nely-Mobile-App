@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, RefreshControl } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -21,7 +22,9 @@ export function ManageMedicationsScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const { showAlert, alertConfig, hideAlert, showError, showSuccess } = useModernAlert();
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const [refreshing, setRefreshing] = useState(false);
+
+  // Simple flag to track initial load
+  const isInitialMount = useRef(true);
 
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading, refetch: refetchProfiles } = useElderlyProfiles();
@@ -31,31 +34,25 @@ export function ManageMedicationsScreen({ navigation }: Props) {
 
   const isLoading = profilesLoading || medicationsLoading;
 
-  // Pull-to-refresh function
-  const onRefresh = async () => {
-    console.log('🔄 ManageMedicationsScreen: Starting refresh...');
-    setRefreshing(true);
-    hapticFeedback.selection(); // Provide haptic feedback for refresh
+  // Simplified auto-refresh: only refresh on focus, skip initial mount
+  useFocusEffect(
+    useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
 
-    try {
-      // Refetch both elderly profiles and medications in parallel
-      await Promise.all([
-        refetchProfiles(),
-        refetchMedications()
-      ]);
-      console.log('✅ ManageMedicationsScreen: Refresh completed successfully');
-    } catch (error) {
-      console.error('❌ ManageMedicationsScreen: Refresh failed:', error);
-      showError(
-        language === 'en' ? 'Refresh Failed' : 'Gagal Muat Semula',
-        language === 'en'
-          ? 'Unable to refresh data. Please try again.'
-          : 'Tidak dapat memuat semula data. Sila cuba lagi.'
-      );
-    } finally {
-      setRefreshing(false);
-    }
-  };
+      // Simple refresh when returning to screen
+      if (currentElderly?.id) {
+        const timer = setTimeout(() => {
+          refetchMedications?.();
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, [currentElderly?.id])
+  );
 
   if (isLoading) {
     return (
@@ -75,7 +72,7 @@ export function ManageMedicationsScreen({ navigation }: Props) {
         <ErrorState
           type="data"
           message={medicationsError}
-          onRetry={onRefresh}
+          onRetry={() => refetchMedications?.()}
         />
       </SafeAreaWrapper>
     );
@@ -165,18 +162,7 @@ export function ManageMedicationsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaWrapper gradientVariant="family" includeTabBarPadding={true}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
-            title={language === 'en' ? 'Refreshing medications...' : 'Memuat semula ubat-ubatan...'}
-            titleColor={colors.textSecondary}
-          />
-        }
+      <ScrollView showsVerticalScrollIndicator={false}
       >
         {/* Modern Gradient Header */}
         <LinearGradient
