@@ -12,13 +12,18 @@ import { VerifyScreen } from './src/screens/VerifyScreen';
 import { BoardingScreen } from './src/screens/BoardingScreen';
 import { CreateFamilyGroupScreen } from './src/screens/CreateFamilyGroupScreen';
 import { CreateUsersScreen } from './src/screens/CreateUsersScreen';
+import { JoinFamilyRequestScreen } from './src/screens/JoinFamilyRequestScreen';
+import { WaitingApprovalScreen } from './src/screens/WaitingApprovalScreen';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { PermissionProvider } from './src/context/PermissionContext';
+import { useCurrentUserJoinRequestStatus } from './src/hooks/useDatabase';
 
-type AppState = 'loading' | 'onboarding' | 'auth' | 'verify' | 'createProfile' | 'boarding' | 'createFamily' | 'authenticated';
+type AppState = 'loading' | 'onboarding' | 'auth' | 'verify' | 'createProfile' | 'boarding' | 'createFamily' | 'joinRequest' | 'waitingApproval' | 'authenticated';
 
 function AppContent() {
   const { user, loading, isAuthenticated, hasCompletedProfileSetup, hasCompletedBoarding } = useAuth();
+  const { status: joinRequestStatus, loading: joinRequestLoading } = useCurrentUserJoinRequestStatus();
   const [appState, setAppState] = useState<AppState>('loading');
   const [userEmail, setUserEmail] = useState<string>('');
   const [isFirstTimeUser, setIsFirstTimeUser] = useState<boolean>(true);
@@ -45,29 +50,65 @@ function AppContent() {
   }, [fadeAnim]);
 
   useEffect(() => {
+    console.log('🚦 Navigation Logic Check:', {
+      loading,
+      joinRequestLoading,
+      splashCompleted,
+      appState,
+      isAuthenticated,
+      hasCompletedProfileSetup,
+      hasCompletedBoarding,
+      joinRequestStatus,
+    });
+
     // Only transition from loading state if both auth loading is done AND splash is completed
-    if (!loading && splashCompleted && appState === 'loading') {
+    if (!loading && !joinRequestLoading && splashCompleted && appState === 'loading') {
+      console.log('✅ All loading complete, determining navigation...');
+
       if (isAuthenticated && user) {
-        // Check profile setup completion first, then boarding
-        if (!hasCompletedProfileSetup) {
+        console.log('👤 User authenticated, checking profile and boarding status...');
+
+        // Check for pending join requests first (highest priority)
+        if (joinRequestStatus === 'pending') {
+          console.log('⏳ Pending join request found, going to waitingApproval');
+          animateStateTransition(() => setAppState('waitingApproval'));
+        } else if (joinRequestStatus === 'approved') {
+          console.log('✅ Join request approved, going to authenticated');
+          // User was approved, go to main app
+          animateStateTransition(() => setAppState('authenticated'));
+        } else if (!hasCompletedProfileSetup) {
+          console.log('📝 Profile not complete, going to createProfile');
           // User authenticated but hasn't completed profile setup
           animateStateTransition(() => setAppState('createProfile'));
         } else if (hasCompletedBoarding) {
-          // User has completed everything - go to main app
+          console.log('🏠 Boarding complete, no pending requests, going to authenticated');
+          // User has completed everything and no pending requests - go to main app
           animateStateTransition(() => setAppState('authenticated'));
         } else {
+          console.log('🚪 Profile complete but boarding not done, going to boarding');
           // User has profile but hasn't completed boarding - send to boarding screen
           animateStateTransition(() => setAppState('boarding'));
         }
       } else {
+        console.log('🔐 User not authenticated, checking first time user...');
         if (isFirstTimeUser) {
+          console.log('👋 First time user, going to onboarding');
           animateStateTransition(() => setAppState('onboarding'));
         } else {
+          console.log('🔑 Returning user, going to auth');
           animateStateTransition(() => setAppState('auth'));
         }
       }
     }
-  }, [loading, isAuthenticated, user, hasCompletedProfileSetup, hasCompletedBoarding, isFirstTimeUser, appState, splashCompleted, animateStateTransition]);
+  }, [loading, joinRequestLoading, isAuthenticated, user, hasCompletedProfileSetup, hasCompletedBoarding, joinRequestStatus, isFirstTimeUser, appState, splashCompleted, animateStateTransition]);
+
+  // Handle sign out navigation - when user signs out from authenticated state
+  useEffect(() => {
+    if (!loading && splashCompleted && !isAuthenticated && appState === 'authenticated') {
+      // User signed out, navigate back to auth screen
+      animateStateTransition(() => setAppState('auth'));
+    }
+  }, [loading, isAuthenticated, appState, splashCompleted, animateStateTransition]);
 
   const handleSplashComplete = useCallback(() => {
     setSplashCompleted(true);
@@ -103,8 +144,22 @@ function AppContent() {
   }, [animateStateTransition]);
 
   const handleJoinFamily = useCallback(() => {
-    // For demo - go straight to main app
-    // In real app, handle family joining logic
+    // Navigate to join request screen
+    animateStateTransition(() => setAppState('joinRequest'));
+  }, [animateStateTransition]);
+
+  const handleJoinRequestSubmitted = useCallback(() => {
+    // After join request is submitted, go to waiting approval screen
+    animateStateTransition(() => setAppState('waitingApproval'));
+  }, [animateStateTransition]);
+
+  const handleWaitingApprovalBack = useCallback(() => {
+    // Go back to auth screen from waiting approval
+    animateStateTransition(() => setAppState('auth'));
+  }, [animateStateTransition]);
+
+  const handleApprovalCompleted = useCallback(() => {
+    // User approved, go to main app
     animateStateTransition(() => setAppState('authenticated'));
   }, [animateStateTransition]);
 
@@ -160,6 +215,22 @@ function AppContent() {
           />
         );
 
+      case 'joinRequest':
+        return (
+          <JoinFamilyRequestScreen
+            onBack={handleBackToBoarding}
+            onRequestCreated={handleJoinRequestSubmitted}
+          />
+        );
+
+      case 'waitingApproval':
+        return (
+          <WaitingApprovalScreen
+            onBackToAuth={handleWaitingApprovalBack}
+            onApproved={handleApprovalCompleted}
+          />
+        );
+
       case 'authenticated':
         return (
           <NavigationContainer
@@ -209,8 +280,11 @@ function AppContent() {
     handleProfileSetupComplete,
     handleCreateFamily,
     handleJoinFamily,
+    handleJoinRequestSubmitted,
     handleFamilyCreated,
     handleBackToBoarding,
+    handleWaitingApprovalBack,
+    handleApprovalCompleted,
     userEmail,
   ]);
 
@@ -226,10 +300,12 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <LanguageProvider>
-            <AppContent />
-            <StatusBar style="auto" />
-          </LanguageProvider>
+          <PermissionProvider>
+            <LanguageProvider>
+              <AppContent />
+              <StatusBar style="auto" />
+            </LanguageProvider>
+          </PermissionProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

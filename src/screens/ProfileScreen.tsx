@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Linking, Image } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaWrapper } from '../components/SafeAreaWrapper';
@@ -8,8 +9,9 @@ import { ModernAlert } from '../components/ModernAlert';
 import { useModernAlert } from '../hooks/useModernAlert';
 import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
-import { useUserProfile } from '../hooks/useDatabase';
+import { useUserProfile, useUserFamilyRole, useRolePermissions } from '../hooks/useDatabase';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../context/PermissionContext';
 import { HealthLoadingState } from '../components/HealthLoadingState';
 import { ErrorState } from '../components/ErrorState';
 
@@ -21,9 +23,39 @@ export function ProfileScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const { signOut } = useAuth();
   const { showAlert, alertConfig, hideAlert } = useModernAlert();
-  const { userProfile, loading, error } = useUserProfile();
+  const { userProfile, loading, error, refetch: refetchUserProfile } = useUserProfile();
+  const { isAdmin, canPerformAction } = usePermissions();
+  const { role: familyRole, loading: familyRoleLoading, refetch: refetchFamilyRole } = useUserFamilyRole();
+  const rolePermissions = useRolePermissions(familyRole);
 
-  if (loading) {
+  const [isSigningOut, setIsSigningOut] = React.useState(false);
+
+  // Simple flag to track initial load (same pattern as HomeScreen)
+  const isInitialMount = useRef(true);
+
+  // Auto-refresh functionality - refresh data when returning to screen
+  useFocusEffect(
+    useCallback(() => {
+      // Skip refresh on initial mount, only refresh on subsequent focuses
+      if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+      }
+
+      // Only refresh if we have valid refetch functions
+      if (refetchUserProfile && refetchFamilyRole) {
+        const timer = setTimeout(() => {
+          refetchUserProfile();
+          refetchFamilyRole();
+        }, 100);
+
+        return () => clearTimeout(timer);
+      }
+    }, []) // Empty dependency array - profile is tied to current user which doesn't change
+  );
+
+
+  if (loading || familyRoleLoading) {
     return (
       <SafeAreaWrapper gradientVariant="profile" includeTabBarPadding={true}>
         <HealthLoadingState
@@ -44,8 +76,8 @@ export function ProfileScreen({ navigation }: Props) {
           type={hasNetworkError ? 'network' : 'data'}
           message={error}
           onRetry={() => {
-            // In a real app, you would refetch the data
-            window.location.reload();
+            refetchUserProfile?.();
+            refetchFamilyRole?.();
           }}
         />
       </SafeAreaWrapper>
@@ -100,24 +132,46 @@ export function ProfileScreen({ navigation }: Props) {
       type: 'warning',
       buttons: [
         {
-          text: language === 'en' ? 'No' : 'Tidak',
-          style: 'destructive',
+          text: language === 'en' ? 'Cancel' : 'Batal',
+          style: 'cancel',
           onPress: hideAlert
         },
         {
-          text: language === 'en' ? 'Yes' : 'Ya',
-          style: 'primary',
+          text: isSigningOut
+            ? (language === 'en' ? 'Signing Out...' : 'Menglog Keluar...')
+            : (language === 'en' ? 'Sign Out' : 'Log Keluar'),
+          style: 'destructive',
           onPress: async () => {
-            hideAlert();
+            if (isSigningOut) return;
+
+            setIsSigningOut(true);
             try {
               await signOut();
+              hideAlert();
+              // Navigation will be handled automatically by App.tsx useEffect
+              console.log('✅ User signed out successfully');
             } catch (error) {
-              Alert.alert(
-                language === 'en' ? 'Error' : 'Ralat',
-                language === 'en'
-                  ? 'Failed to sign out. Please try again.'
-                  : 'Gagal log keluar. Sila cuba lagi.'
-              );
+              console.error('❌ Sign out error:', error);
+              setIsSigningOut(false);
+              hideAlert();
+
+              // Show error alert
+              setTimeout(() => {
+                showAlert({
+                  title: language === 'en' ? 'Sign Out Failed' : 'Log Keluar Gagal',
+                  message: language === 'en'
+                    ? 'Failed to sign out. Please check your connection and try again.'
+                    : 'Gagal log keluar. Sila semak sambungan anda dan cuba lagi.',
+                  type: 'error',
+                  buttons: [
+                    {
+                      text: 'OK',
+                      style: 'primary',
+                      onPress: hideAlert
+                    }
+                  ]
+                });
+              }, 100);
             }
           }
         }
@@ -125,7 +179,63 @@ export function ProfileScreen({ navigation }: Props) {
     });
   };
 
-  
+  // Helper function to get family role display text
+  const getFamilyRoleDisplayText = () => {
+    switch (familyRole) {
+      case 'admin':
+        return language === 'en' ? 'Family Administrator' : 'Pentadbir Keluarga';
+      case 'carer':
+        return language === 'en' ? 'Family Carer' : 'Penjaga Keluarga';
+      case 'family_viewer':
+        return language === 'en' ? 'Family Viewer' : 'Pelihat Keluarga';
+      case 'none':
+        return language === 'en' ? 'No Family Role' : 'Tiada Peranan Keluarga';
+      default:
+        return language === 'en' ? 'Unknown Role' : 'Peranan Tidak Diketahui';
+    }
+  };
+
+  // Helper function to get family role color
+  const getFamilyRoleColor = () => {
+    switch (familyRole) {
+      case 'admin':
+        return colors.error;
+      case 'carer':
+        return colors.warning;
+      case 'family_viewer':
+        return colors.info;
+      case 'none':
+        return colors.gray400;
+      default:
+        return colors.gray400;
+    }
+  };
+
+  // Helper function to get family role description
+  const getFamilyRoleDescription = () => {
+    switch (familyRole) {
+      case 'admin':
+        return language === 'en'
+          ? 'Full access and family management'
+          : 'Akses penuh dan pengurusan keluarga';
+      case 'carer':
+        return language === 'en'
+          ? 'Can manage health data and appointments'
+          : 'Boleh urus data kesihatan dan temujanji';
+      case 'family_viewer':
+        return language === 'en'
+          ? 'View-only access to health information'
+          : 'Akses lihat sahaja untuk maklumat kesihatan';
+      case 'none':
+        return language === 'en'
+          ? 'Not part of any family group'
+          : 'Bukan ahli mana-mana kumpulan keluarga';
+      default:
+        return '';
+    }
+  };
+
+
   return (
     <SafeAreaWrapper gradientVariant="profile" includeTabBarPadding={true}>
       <ScrollView 
@@ -155,14 +265,26 @@ export function ProfileScreen({ navigation }: Props) {
             
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{userProfile.name}</Text>
-              <View style={styles.userRole}>
-                <Text style={styles.roleText}>
-                  {language === 'en'
-                    ? userProfile.role === 'elderly' ? 'Elderly' : 'Caregiver'
-                    : userProfile.role === 'elderly' ? 'Warga Emas' : 'Penjaga'
-                  }
-                </Text>
+
+              {/* User Type Role */}
+              <View style={styles.roleContainer}>
+                <View style={styles.userRole}>
+                  <Text style={styles.roleText}>
+                    {language === 'en'
+                      ? userProfile.role === 'elderly' ? 'Elderly' : 'Caregiver'
+                      : userProfile.role === 'elderly' ? 'Warga Emas' : 'Penjaga'
+                    }
+                  </Text>
+                </View>
+
+                {/* Family Role Badge */}
+                <View style={[styles.familyRole, { backgroundColor: `${getFamilyRoleColor()}20`, borderColor: getFamilyRoleColor() }]}>
+                  <Text style={[styles.familyRoleText, { color: getFamilyRoleColor() }]}>
+                    {getFamilyRoleDisplayText()}
+                  </Text>
+                </View>
               </View>
+
               {userProfile.phone && <Text style={styles.userContact}>{userProfile.phone}</Text>}
               <Text style={styles.userContact}>{userProfile.email}</Text>
             </View>
@@ -182,57 +304,176 @@ export function ProfileScreen({ navigation }: Props) {
           </View>
         </LinearGradient>
 
+        {/* Family Role Status Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            {language === 'en' ? 'Family Role & Permissions' : 'Peranan & Kebenaran Keluarga'}
+          </Text>
+
+          {/* Current Role Display */}
+          <View style={styles.roleStatusCard}>
+            <View style={styles.roleStatusHeader}>
+              <View style={[styles.roleBadge, { backgroundColor: getFamilyRoleColor() }]}>
+                <Ionicons
+                  name={familyRole === 'admin' ? 'shield' : familyRole === 'carer' ? 'medical' : 'eye'}
+                  size={16}
+                  color={colors.white}
+                />
+              </View>
+              <View style={styles.roleStatusInfo}>
+                <Text style={styles.roleStatusTitle}>{getFamilyRoleDisplayText()}</Text>
+                <Text style={styles.roleStatusDescription}>{getFamilyRoleDescription()}</Text>
+              </View>
+            </View>
+
+            {/* Permissions List */}
+            {familyRole !== 'none' && (
+              <View style={styles.permissionsList}>
+                <Text style={styles.permissionsTitle}>
+                  {language === 'en' ? 'Your Permissions:' : 'Kebenaran Anda:'}
+                </Text>
+
+                {rolePermissions.canEditHealth && (
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                    <Text style={styles.permissionText}>
+                      {language === 'en' ? 'Manage health data' : 'Urus data kesihatan'}
+                    </Text>
+                  </View>
+                )}
+
+                {rolePermissions.canViewHealth && (
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                    <Text style={styles.permissionText}>
+                      {language === 'en' ? 'View health information' : 'Lihat maklumat kesihatan'}
+                    </Text>
+                  </View>
+                )}
+
+                {rolePermissions.canChangeRoles && (
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                    <Text style={styles.permissionText}>
+                      {language === 'en' ? 'Manage family roles' : 'Urus peranan keluarga'}
+                    </Text>
+                  </View>
+                )}
+
+                {rolePermissions.canInviteMembers && (
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                    <Text style={styles.permissionText}>
+                      {language === 'en' ? 'Invite family members' : 'Jemput ahli keluarga'}
+                    </Text>
+                  </View>
+                )}
+
+                {rolePermissions.canManageFamily && (
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                    <Text style={styles.permissionText}>
+                      {language === 'en' ? 'Manage family group' : 'Urus kumpulan keluarga'}
+                    </Text>
+                  </View>
+                )}
+
+                {familyRole === 'family_viewer' && (
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="close-circle" size={16} color={colors.gray400} />
+                    <Text style={[styles.permissionText, { color: colors.textSecondary }]}>
+                      {language === 'en' ? 'Cannot edit health data' : 'Tidak boleh edit data kesihatan'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        </View>
+
         {/* Family Management Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             {language === 'en' ? 'Family Management' : 'Pengurusan Keluarga'}
           </Text>
-          
-          <InteractiveFeedback 
-            onPress={() => navigation?.navigate('InviteFamilyMembers')}
-            feedbackType="scale"
-            hapticType="light"
-          >
-            <View style={styles.menuItem}>
-              <View style={styles.menuItemLeft}>
-                <View style={[styles.menuIcon, { backgroundColor: colors.successAlpha }]}>
-                  <Ionicons name="person-add" size={20} color={colors.success} />
+
+          {/* Admin-only: Invite Family Members */}
+          {canPerformAction('invite_family_member') && (
+            <InteractiveFeedback
+              onPress={() => navigation?.navigate('InviteFamilyMembers')}
+              feedbackType="scale"
+              hapticType="light"
+            >
+              <View style={styles.menuItem}>
+                <View style={styles.menuItemLeft}>
+                  <View style={[styles.menuIcon, { backgroundColor: colors.successAlpha }]}>
+                    <Ionicons name="person-add" size={20} color={colors.success} />
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuItemTitle}>
+                      {language === 'en' ? 'Invite Family Members' : 'Jemput Ahli Keluarga'}
+                    </Text>
+                    <Text style={styles.menuItemSubtitle}>
+                      {language === 'en' ? 'Manage family access' : 'Urus akses keluarga'}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.menuTextContainer}>
-                  <Text style={styles.menuItemTitle}>
-                    {language === 'en' ? 'Invite Family Members' : 'Jemput Ahli Keluarga'}
-                  </Text>
-                  <Text style={styles.menuItemSubtitle}>
-                    {language === 'en' ? 'Manage family access' : 'Urus akses keluarga'}
-                  </Text>
-                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
               </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-            </View>
-          </InteractiveFeedback>
-          
-          <InteractiveFeedback 
-            onPress={() => navigation?.navigate('RoleManagement')}
-            feedbackType="scale"
-            hapticType="light"
-          >
-            <View style={styles.menuItem}>
-              <View style={styles.menuItemLeft}>
-                <View style={[styles.menuIcon, { backgroundColor: colors.infoAlpha }]}>
-                  <Ionicons name="shield-checkmark" size={20} color={colors.info} />
+            </InteractiveFeedback>
+          )}
+
+          {/* Admin-only: Join Requests Management */}
+          {isAdmin && (
+            <InteractiveFeedback
+              onPress={() => navigation?.navigate('FamilyJoinRequests')}
+              feedbackType="scale"
+              hapticType="light"
+            >
+              <View style={styles.menuItem}>
+                <View style={styles.menuItemLeft}>
+                  <View style={[styles.menuIcon, { backgroundColor: colors.warningAlpha }]}>
+                    <Ionicons name="mail" size={20} color={colors.warning} />
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuItemTitle}>
+                      {language === 'en' ? 'Join Requests' : 'Permintaan Sertai'}
+                    </Text>
+                    <Text style={styles.menuItemSubtitle}>
+                      {language === 'en' ? 'Review pending family requests' : 'Kaji permintaan keluarga tertunda'}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.menuTextContainer}>
-                  <Text style={styles.menuItemTitle}>
-                    {language === 'en' ? 'Role Management' : 'Pengurusan Peranan'}
-                  </Text>
-                  <Text style={styles.menuItemSubtitle}>
-                    {language === 'en' ? 'Manage permissions and access' : 'Urus kebenaran dan akses'}
-                  </Text>
-                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
               </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-            </View>
-          </InteractiveFeedback>
+            </InteractiveFeedback>
+          )}
+
+          {/* Admin-only: Role Management */}
+          {canPerformAction('change_user_role') && (
+            <InteractiveFeedback
+              onPress={() => navigation?.navigate('RoleManagement')}
+              feedbackType="scale"
+              hapticType="light"
+            >
+              <View style={styles.menuItem}>
+                <View style={styles.menuItemLeft}>
+                  <View style={[styles.menuIcon, { backgroundColor: colors.infoAlpha }]}>
+                    <Ionicons name="shield-checkmark" size={20} color={colors.info} />
+                  </View>
+                  <View style={styles.menuTextContainer}>
+                    <Text style={styles.menuItemTitle}>
+                      {language === 'en' ? 'Role Management' : 'Pengurusan Peranan'}
+                    </Text>
+                    <Text style={styles.menuItemSubtitle}>
+                      {language === 'en' ? 'Manage permissions and access' : 'Urus kebenaran dan akses'}
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+              </View>
+            </InteractiveFeedback>
+          )}
         </View>
 
         {/* App Settings Section */}
@@ -431,11 +672,25 @@ export function ProfileScreen({ navigation }: Props) {
           onPress={handleSignOut}
           feedbackType="scale"
           hapticType="medium"
+          disabled={isSigningOut}
         >
-          <View style={styles.signOutButton}>
-            <Ionicons name="log-out-outline" size={20} color={colors.error} />
-            <Text style={styles.signOutText}>
-              {language === 'en' ? 'Sign Out' : 'Log Keluar'}
+          <View style={[
+            styles.signOutButton,
+            isSigningOut && { opacity: 0.6, backgroundColor: colors.gray50 }
+          ]}>
+            <Ionicons
+              name={isSigningOut ? "refresh-outline" : "log-out-outline"}
+              size={20}
+              color={isSigningOut ? colors.textMuted : colors.error}
+            />
+            <Text style={[
+              styles.signOutText,
+              isSigningOut && { color: colors.textMuted }
+            ]}>
+              {isSigningOut
+                ? (language === 'en' ? 'Signing Out...' : 'Menglog Keluar...')
+                : (language === 'en' ? 'Sign Out' : 'Log Keluar')
+              }
             </Text>
           </View>
         </InteractiveFeedback>
@@ -522,6 +777,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(255, 255, 255, 0.9)',
     fontWeight: '500',
+  },
+  roleContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  familyRole: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  familyRoleText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   userContact: {
     fontSize: 13,
@@ -630,5 +900,62 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 20,
+  },
+
+  // Family Role Status Styles
+  roleStatusCard: {
+    backgroundColor: colors.white,
+    margin: 16,
+    marginTop: 0,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.gray100,
+  },
+  roleStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  roleBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  roleStatusInfo: {
+    flex: 1,
+  },
+  roleStatusTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  roleStatusDescription: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  permissionsList: {
+    gap: 8,
+  },
+  permissionsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginBottom: 8,
+  },
+  permissionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  permissionText: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    flex: 1,
   },
 });

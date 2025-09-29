@@ -3,21 +3,28 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
+import type { FamilyRole } from '../types';
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   userProfile: any | null;
-  loading: boolean;
+  familyRole: FamilyRole | 'none';
+  isAdmin: boolean;
+  isLoading: boolean;
+  roleLoading: boolean;
   signIn: (email: string, password: string) => Promise<{error: any}>;
   signUp: (email: string, password: string, userData: any) => Promise<{error: any}>;
   signInWithGoogle: () => Promise<{error: any}>;
   signOut: () => Promise<void>;
   updateUserProfile: (updates: any) => Promise<{error: any}>;
   createUserProfile: (userData: any) => Promise<{error: any}>;
+  refreshFamilyRole: () => Promise<void>;
   isAuthenticated: boolean;
   hasCompletedProfileSetup: boolean;
   hasCompletedBoarding: boolean;
+  // Legacy loading for backwards compatibility
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -39,6 +46,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [familyRole, setFamilyRole] = useState<FamilyRole | 'none'>('none');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [roleLoading, setRoleLoading] = useState(true);
 
   // Function to fetch user profile data
   const fetchUserProfile = async (userId: string) => {
@@ -66,6 +76,61 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
+  // Function to fetch user's family role
+  const fetchFamilyRole = async (userId: string, familyId?: string) => {
+    try {
+      setRoleLoading(true);
+
+      // If no family ID provided, get it from user profile
+      let userFamilyId = familyId;
+      if (!userFamilyId) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('family_id')
+          .eq('id', userId)
+          .single();
+
+        if (userError || !userData?.family_id) {
+          setFamilyRole('none');
+          setIsAdmin(false);
+          return;
+        }
+        userFamilyId = userData.family_id;
+      }
+
+      // Get user's role in the family
+      const { data: roleData, error: roleError } = await supabase
+        .from('user_family_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .eq('family_id', userFamilyId)
+        .eq('is_active', true)
+        .single();
+
+      if (roleError || !roleData) {
+        setFamilyRole('none');
+        setIsAdmin(false);
+      } else {
+        const role = roleData.role as FamilyRole;
+        setFamilyRole(role);
+        setIsAdmin(role === 'admin');
+      }
+    } catch (error) {
+      console.error('Error fetching family role:', error);
+      setFamilyRole('none');
+      setIsAdmin(false);
+    } finally {
+      setRoleLoading(false);
+    }
+  };
+
+  // Function to refresh family role (can be called from other components)
+  const refreshFamilyRole = async () => {
+    if (user?.id) {
+      await fetchFamilyRole(user.id);
+    }
+  };
+
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -75,8 +140,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (session?.user) {
         const profile = await fetchUserProfile(session.user.id);
         setUserProfile(profile);
+
+        // Fetch family role if user has completed boarding
+        if (profile?.family_id) {
+          await fetchFamilyRole(session.user.id, profile.family_id);
+        } else {
+          setFamilyRole('none');
+          setIsAdmin(false);
+          setRoleLoading(false);
+        }
       } else {
         setUserProfile(null);
+        setFamilyRole('none');
+        setIsAdmin(false);
+        setRoleLoading(false);
       }
 
       setLoading(false);
@@ -93,8 +170,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (session?.user) {
         const profile = await fetchUserProfile(session.user.id);
         setUserProfile(profile);
+
+        // Fetch family role if user has completed boarding
+        if (profile?.family_id) {
+          await fetchFamilyRole(session.user.id, profile.family_id);
+        } else {
+          setFamilyRole('none');
+          setIsAdmin(false);
+          setRoleLoading(false);
+        }
       } else {
         setUserProfile(null);
+        setFamilyRole('none');
+        setIsAdmin(false);
+        setRoleLoading(false);
       }
 
       setLoading(false);
@@ -304,19 +393,25 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     session,
     user,
     userProfile,
-    loading,
+    familyRole,
+    isAdmin,
+    isLoading: loading,
+    roleLoading,
     signIn,
     signUp,
     signInWithGoogle,
     signOut,
     updateUserProfile,
     createUserProfile,
+    refreshFamilyRole,
     isAuthenticated: !!session,
     hasCompletedProfileSetup: !!userProfile &&
       !!userProfile.name &&
-      userProfile.name !== user?.email?.split('@')[0] &&
+      !!userProfile.role &&
       (userProfile.role === 'elderly' || userProfile.role === 'not elderly'),
     hasCompletedBoarding: !!userProfile?.family_id,
+    // Legacy loading for backwards compatibility
+    loading,
   };
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { FamilyRole, FamilyMemberWithRole } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -208,49 +208,55 @@ export const useUserProfile = () => {
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
   const { user } = useAuth();
 
-  useEffect(() => {
+  const fetchUserProfile = async () => {
     if (!user) return;
 
-    const fetchUserProfile = async () => {
-      try {
-        setLoading(true);
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
 
-        if (error) {
-          setError(error.message);
-        } else {
-          // Transform database data to match frontend types
-          const profile: User = {
-            id: data.id,
-            name: data.name,
-            email: data.email,
-            phone: data.phone || '',
-            role: data.role,
-            familyId: data.family_id || '',
-            avatar: data.avatar || undefined,
-            isActive: data.is_active,
-            preferredLanguage: data.preferred_language,
-            dateJoined: data.date_joined,
-          };
-          setUserProfile(profile);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
-      } finally {
-        setLoading(false);
+      if (error) {
+        setError(error.message);
+      } else {
+        // Transform database data to match frontend types
+        const profile: User = {
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          phone: data.phone || '',
+          role: data.role,
+          familyId: data.family_id || '',
+          avatar: data.avatar || undefined,
+          isActive: data.is_active,
+          preferredLanguage: data.preferred_language,
+          dateJoined: data.date_joined,
+        };
+        setUserProfile(profile);
+        setError(null);
       }
-    };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchUserProfile();
-  }, [user]);
+  }, [user, refetchTrigger]);
 
-  return { userProfile, loading, error };
+  const refetch = useCallback(() => {
+    setRefetchTrigger(prev => prev + 1);
+  }, []);
+
+  return { userProfile, loading, error, refetch };
 };
 
 // Hook for recording vital signs
@@ -1268,55 +1274,79 @@ export const useUserFamilyRole = () => {
   const [role, setRole] = useState<FamilyRole | 'none'>('none');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  const fetchUserRole = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setRole('none');
+        return;
+      }
+
+      // Get user's family info
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('family_id')
+        .eq('id', user.id)
+        .single();
+
+      if (userError || !userData?.family_id) {
+        setRole('none');
+        return;
+      }
+
+      // Get user's role in the family using the secure function to bypass RLS issues
+      const { data: roleData, error: roleError } = await supabase
+        .rpc('get_user_family_role', {
+          p_user_id: user.id,
+          p_family_id: userData.family_id
+        });
+
+      if (roleError) {
+        // If RPC function doesn't exist, fall back to direct query
+        if (roleError.message?.includes('function') && roleError.message?.includes('does not exist')) {
+          const { data: directRoleData, error: directRoleError } = await supabase
+            .from('user_family_roles')
+            .select('role')
+            .eq('user_id', user.id)
+            .eq('family_id', userData.family_id)
+            .eq('is_active', true)
+            .single();
+
+          if (directRoleError || !directRoleData) {
+            setRole('none');
+          } else {
+            setRole(directRoleData.role as FamilyRole);
+          }
+        } else {
+          setRole('none');
+        }
+      } else if (!roleData) {
+        setRole('none');
+      } else {
+        // The RPC function returns a string directly, not an object
+        setRole(roleData === 'none' ? 'none' : roleData as FamilyRole);
+      }
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      setRole('none');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        setLoading(true);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          setRole('none');
-          return;
-        }
-
-        // Get user's family info
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('family_id')
-          .eq('id', user.id)
-          .single();
-
-        if (userError || !userData?.family_id) {
-          setRole('none');
-          return;
-        }
-
-        // Get user's role in the family
-        const { data: roleData, error: roleError } = await supabase
-          .from('user_family_roles')
-          .select('role')
-          .eq('user_id', user.id)
-          .eq('family_id', userData.family_id)
-          .eq('is_active', true)
-          .single();
-
-        if (roleError || !roleData) {
-          setRole('none');
-        } else {
-          setRole(roleData.role as FamilyRole);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
-        setRole('none');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchUserRole();
+  }, [refetchTrigger]);
+
+  const refetch = useCallback(() => {
+    setRefetchTrigger(prev => prev + 1);
   }, []);
 
-  return { role, loading, error };
+  return { role, loading, error, refetch };
 };
 
 // Hook to get all family members with their roles
@@ -1332,23 +1362,38 @@ export const useFamilyMembersWithRoles = (familyId: string) => {
     const fetchFamilyMembers = async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase.rpc('get_family_members_with_roles', {
-          p_family_id: familyId
-        });
+
+        // Get all active family members with cached user data from user_family_roles
+        const { data, error } = await supabase
+          .from('user_family_roles')
+          .select(`
+            user_id,
+            user_name,
+            user_email,
+            role,
+            assigned_at
+          `)
+          .eq('family_id', familyId)
+          .eq('is_active', true)
+          .order('assigned_at', { ascending: true });
+
+        console.log('Family members query result:', { data, error });
 
         if (error) {
           setError(error.message);
         } else {
           const formattedMembers: FamilyMemberWithRole[] = data.map((member: any) => ({
             userId: member.user_id,
-            name: member.name,
-            email: member.email,
+            name: member.user_name || `User ${member.user_id.slice(0, 8)}...`,
+            email: member.user_email || 'No email available',
             role: member.role as FamilyRole | 'none',
-            isElderly: member.is_elderly,
+            isElderly: false, // We can update this later if needed
             assignedAt: member.assigned_at,
-            assignedByName: member.assigned_by_name,
+            assignedByName: '', // We can add this later if needed
           }));
+          console.log('Formatted family members:', formattedMembers);
           setMembers(formattedMembers);
+          setError(null);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -1672,4 +1717,453 @@ export const useVitalSignsHistory = (elderlyId: string, period: 'week' | 'month'
   };
 
   return { vitalSignsHistory, loading, error, refetch };
+};
+
+// ========================================
+// PHASE 1: FAMILY JOIN REQUEST MANAGEMENT
+// ========================================
+
+// Interface for family join requests
+export interface FamilyJoinRequest {
+  id: string;
+  familyId: string;
+  familyCode: string;
+  familyName: string;
+  requesterId: string;
+  requesterEmail: string;
+  requesterName: string;
+  message?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewMessage?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+// Hook for creating family join request
+export const useCreateFamilyJoinRequest = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const createJoinRequest = async (familyCode: string, message?: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log('Creating join request with RPC function');
+      console.log('Family code:', familyCode);
+      console.log('Message:', message);
+
+      // Use the RPC function to create join request
+      const { data: result, error: rpcError } = await supabase
+        .rpc('create_family_join_request', {
+          p_family_code: familyCode,
+          p_request_message: message
+        });
+
+      console.log('RPC result:', { result, rpcError });
+
+      if (rpcError) {
+        console.log('RPC error:', rpcError);
+        setError(rpcError.message);
+        return null;
+      }
+
+      if (result && result.success) {
+        console.log('Join request created successfully');
+        return result;
+      } else {
+        console.log('Join request failed:', result);
+        setError(result?.error || 'Failed to create join request');
+        return null;
+      }
+    } catch (err) {
+      console.error('Create join request error:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { createJoinRequest, loading, error };
+};
+
+// Hook for reviewing family join requests (admin only)
+export const useReviewFamilyJoinRequest = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reviewRequest = async (
+    requestId: string,
+    action: 'approve' | 'reject',
+    _reviewMessage?: string
+  ) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setError('Authentication required');
+        return false;
+      }
+
+      // Use the RPC function to review the join request
+      const { data: result, error: rpcError } = await supabase
+        .rpc('review_family_join_request', {
+          p_request_id: requestId,
+          p_action: action,
+          p_review_message: _reviewMessage || null
+        });
+
+      if (rpcError) {
+        console.error('Review join request error:', rpcError);
+        setError(rpcError.message || 'Failed to review request');
+        return false;
+      }
+
+      if (!result?.success) {
+        setError(result?.message || 'Failed to review request');
+        return false;
+      }
+
+
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { reviewRequest, loading, error };
+};
+
+// Hook for fetching pending join requests (admin only)
+export const usePendingJoinRequests = (familyId: string) => {
+  const [requests, setRequests] = useState<FamilyJoinRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  useEffect(() => {
+    if (!familyId) return;
+
+    const fetchPendingRequests = async () => {
+      try {
+        setLoading(true);
+
+        // Get join requests with cached user data
+        console.log('Fetching join requests for familyId:', familyId);
+        const { data: joinRequestsData, error: joinRequestsError } = await supabase
+          .from('family_join_requests')
+          .select(`
+            id,
+            user_id,
+            user_name,
+            user_email,
+            family_id,
+            family_code,
+            request_message,
+            status,
+            requested_at
+          `)
+          .eq('family_id', familyId)
+          .eq('status', 'pending')
+          .order('requested_at', { ascending: false });
+
+        if (joinRequestsError) {
+          console.error('Error fetching join requests:', joinRequestsError);
+          setError(joinRequestsError.message);
+          return;
+        }
+
+        if (!joinRequestsData || joinRequestsData.length === 0) {
+          console.log('No pending join requests found');
+          setRequests([]);
+          return;
+        }
+
+        console.log('Found join requests with user data:', joinRequestsData);
+
+        // Map the data directly since we have cached user info
+        const formattedRequests: FamilyJoinRequest[] = joinRequestsData.map((req: any) => ({
+          id: req.id,
+          familyId: req.family_id,
+          familyCode: req.family_code,
+          familyName: '',
+          requesterId: req.user_id,
+          requesterEmail: req.user_email || `User ID: ${req.user_id.slice(0, 8)}...`,
+          requesterName: req.user_name || `User ${req.user_id.slice(0, 8)}...`,
+          message: req.request_message || 'No message provided',
+          status: req.status,
+          createdAt: req.requested_at,
+          expiresAt: '',
+        }));
+
+        console.log('Final formatted requests:', formattedRequests);
+        setRequests(formattedRequests);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPendingRequests();
+  }, [familyId, refetchTrigger]);
+
+  const refetch = () => {
+    setRefetchTrigger(prev => prev + 1);
+  };
+
+  return { requests, loading, error, refetch };
+};
+
+// Hook for validating family code
+export const useValidateFamilyCode = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const validateFamilyCode = async (familyCode: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!familyCode || familyCode.length !== 6) {
+        return { isValid: false, error: 'Family code must be 6 digits' };
+      }
+
+      // Use RPC function to bypass RLS for family code validation
+      const { data: validationResult, error: rpcError } = await supabase
+        .rpc('validate_family_code_for_join', { family_code_param: familyCode });
+
+      console.log('Family validation result:', { validationResult, rpcError });
+
+      if (rpcError) {
+        console.log('RPC validation failed:', rpcError);
+        return { isValid: false, error: 'Validation failed. Please try again.' };
+      }
+
+      return validationResult;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      return { isValid: false, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { validateFamilyCode, loading, error };
+};
+
+// Hook for checking current user's join request status (without family code)
+export const useCurrentUserJoinRequestStatus = () => {
+  const [status, setStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchStatus = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('🔄 Fetching join request status...');
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('❌ No authenticated user found');
+        setStatus('none');
+        setData(null);
+        return;
+      }
+
+      console.log('👤 User ID:', user.id);
+
+      // Use RPC function to bypass RLS policies completely
+      const { data: joinRequestResult, error: requestError } = await supabase
+        .rpc('get_user_join_request_status_detailed', { p_user_id: user.id });
+
+      console.log('📡 RPC Response:', { joinRequestResult, requestError });
+
+      if (requestError) {
+        console.log('❌ Error fetching join request status:', requestError);
+        setError(requestError.message);
+        setStatus('none');
+        setData(null);
+        return;
+      }
+
+      if (joinRequestResult && joinRequestResult.has_request) {
+        console.log('✅ Found join request:', joinRequestResult.status);
+        setStatus(joinRequestResult.status);
+        setData({
+          requestId: joinRequestResult.request_id,
+          familyName: joinRequestResult.family_name,
+          familyCode: joinRequestResult.family_code,
+          requestMessage: joinRequestResult.request_message,
+          requestedAt: joinRequestResult.requested_at,
+          reviewedAt: joinRequestResult.reviewed_at,
+          reviewMessage: joinRequestResult.review_message,
+        });
+      } else {
+        console.log('🚫 No join request found or RPC returned null');
+        setStatus('none');
+        setData(null);
+      }
+    } catch (err) {
+      console.error('Error in useCurrentUserJoinRequestStatus:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      setStatus('none');
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
+
+  return {
+    status,
+    data,
+    loading,
+    error,
+    refetch: fetchStatus
+  };
+};
+
+// Hook for checking user's join request status
+export const useUserJoinRequestStatus = (familyCode: string) => {
+  const [status, setStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!familyCode) return;
+
+    const checkRequestStatus = async () => {
+      try {
+        setLoading(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setStatus('none');
+          return;
+        }
+
+        // Get user profile
+        const { data: userProfile, error: userError } = await supabase
+          .from('users')
+          .select('email')
+          .eq('id', user.id)
+          .single();
+
+        if (userError || !userProfile) {
+          setStatus('none');
+          return;
+        }
+
+        // Find family by code
+        const { data: family, error: familyError } = await supabase
+          .from('family_groups')
+          .select('id')
+          .eq('family_code', familyCode)
+          .eq('is_active', true)
+          .single();
+
+        if (familyError || !family) {
+          setStatus('none');
+          return;
+        }
+
+        // Check for existing request
+        const { data: request, error: requestError } = await supabase
+          .from('family_invitations')
+          .select('status')
+          .eq('family_id', family.id)
+          .eq('invitee_email', userProfile.email)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (requestError) {
+          setError(requestError.message);
+          setStatus('none');
+        } else if (request && request.length > 0) {
+          setStatus(request[0].status as any);
+        } else {
+          setStatus('none');
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unknown error');
+        setStatus('none');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkRequestStatus();
+  }, [familyCode]);
+
+  return { status, loading, error };
+};
+
+// ========================================
+// ROLE PERMISSION UTILITIES
+// ========================================
+
+// Role permissions definition
+export const ROLE_PERMISSIONS = {
+  admin: {
+    canViewHealth: true,
+    canEditHealth: true,
+    canManageMedications: true,
+    canManageAppointments: true,
+    canManageFamily: true,
+    canInviteMembers: true,
+    canChangeRoles: true,
+    canDeleteData: true,
+  },
+  carer: {
+    canViewHealth: true,
+    canEditHealth: true,
+    canManageMedications: true,
+    canManageAppointments: true,
+    canManageFamily: false,
+    canInviteMembers: false,
+    canChangeRoles: false,
+    canDeleteData: false,
+  },
+  family_viewer: {
+    canViewHealth: true,
+    canEditHealth: false,
+    canManageMedications: false,
+    canManageAppointments: false,
+    canManageFamily: false,
+    canInviteMembers: false,
+    canChangeRoles: false,
+    canDeleteData: false,
+  },
+  none: {
+    canViewHealth: false,
+    canEditHealth: false,
+    canManageMedications: false,
+    canManageAppointments: false,
+    canManageFamily: false,
+    canInviteMembers: false,
+    canChangeRoles: false,
+    canDeleteData: false,
+  },
+} as const;
+
+// Hook for getting role permissions
+export const useRolePermissions = (role?: FamilyRole | 'none') => {
+  const { role: currentRole } = useUserFamilyRole();
+  const effectiveRole = role || currentRole;
+
+  return ROLE_PERMISSIONS[effectiveRole] || ROLE_PERMISSIONS.none;
 };

@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   Dimensions,
   Animated,
@@ -34,7 +33,6 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
   const { userProfile, createUserProfile, user } = useAuth();
 
   const [selectedOption, setSelectedOption] = useState<'create' | 'join' | null>(null);
-  const [familyCode, setFamilyCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   // Ensure user profile exists
@@ -65,7 +63,7 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
       createOption: 'Create New Family Group',
       createDescription: 'Set up a new family group to start tracking health together',
       joinOption: 'Join Existing Family',
-      joinDescription: 'Enter a family code to join an existing group',
+      joinDescription: 'Request to join an existing family group',
       familyCodePlaceholder: 'Enter 6-digit family code',
       continueButton: 'Continue',
       selectOption: 'Please select an option to continue',
@@ -83,7 +81,7 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
       createOption: 'Buat Kumpulan Keluarga Baru',
       createDescription: 'Sediakan kumpulan keluarga baru untuk mula menjejak kesihatan bersama',
       joinOption: 'Sertai Keluarga Sedia Ada',
-      joinDescription: 'Masukkan kod keluarga untuk menyertai kumpulan sedia ada',
+      joinDescription: 'Minta untuk menyertai kumpulan keluarga sedia ada',
       familyCodePlaceholder: 'Masukkan kod keluarga 6-digit',
       continueButton: 'Teruskan',
       selectOption: 'Sila pilih pilihan untuk teruskan',
@@ -139,9 +137,6 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
 
   const handleOptionSelect = (option: 'create' | 'join') => {
     setSelectedOption(option);
-    if (option === 'create') {
-      setFamilyCode('');
-    }
   };
 
   const handleContinue = async () => {
@@ -160,47 +155,11 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
       return;
     }
 
-    // Handle join family flow
-    if (familyCode.length !== 6) {
-      showAlert({
-        type: 'error',
-        title: t.error,
-        message: t.invalidCode,
-        buttons: [{ text: 'OK', style: 'default', onPress: hideAlert }],
-      });
-      return;
-    }
-
-    setIsLoading(true);
-
-    // Simulate API call to join family
-    setTimeout(() => {
-      setIsLoading(false);
-
-      // For demo purposes, accept any 6-digit code
-      if (familyCode.length === 6) {
-        showAlert({
-          type: 'success',
-          title: t.success,
-          message: t.familyJoined,
-          buttons: [{
-            text: 'OK',
-            style: 'primary',
-            onPress: () => { hideAlert(); onJoinFamily(); }
-          }],
-        });
-      } else {
-        showAlert({
-          type: 'error',
-          title: t.error,
-          message: t.codeNotFound,
-          buttons: [{ text: 'OK', style: 'default', onPress: hideAlert }],
-        });
-      }
-    }, 2000);
+    // Navigate to join request screen
+    onJoinFamily();
   };
 
-  const canContinue = selectedOption === 'create' || (selectedOption === 'join' && familyCode.length === 6);
+  const canContinue = selectedOption !== null;
 
   return (
     <SafeAreaWrapper gradientVariant="onboarding">
@@ -308,23 +267,6 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
             </View>
           </InteractiveFeedback>
 
-          {/* Family Code Input (shown only when join is selected) */}
-          {selectedOption === 'join' && (
-            <View style={styles.codeInputContainer}>
-              <TextInput
-                style={styles.codeInput}
-                value={familyCode}
-                onChangeText={setFamilyCode}
-                placeholder={t.familyCodePlaceholder}
-                placeholderTextColor={colors.textMuted}
-                keyboardType="numeric"
-                maxLength={6}
-                textAlign="center"
-                selectionColor={colors.primary}
-                editable={!isLoading}
-              />
-            </View>
-          )}
         </View>
 
         {/* Continue Button */}

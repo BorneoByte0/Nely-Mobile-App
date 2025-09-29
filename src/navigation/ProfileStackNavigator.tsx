@@ -4,6 +4,8 @@ import { ProfileScreen } from '../screens/ProfileScreen';
 import { EditUserProfileScreen } from '../screens/EditUserProfileScreen';
 import { InviteFamilyMembersScreen } from '../screens/InviteFamilyMembersScreen';
 import { RoleManagementScreen } from '../screens/RoleManagementScreen';
+import { JoinFamilyRequestScreen } from '../screens/JoinFamilyRequestScreen';
+import { FamilyJoinRequestsScreen } from '../screens/FamilyJoinRequestsScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { UnitsScreen } from '../screens/UnitsScreen';
 import { ReminderTimingsScreen } from '../screens/ReminderTimingsScreen';
@@ -35,12 +37,20 @@ export function ProfileStackNavigator() {
         name="InviteFamilyMembers" 
         component={InviteFamilyMembersScreen}
       />
-      <Stack.Screen 
-        name="RoleManagement" 
+      <Stack.Screen
+        name="RoleManagement"
         component={RoleManagementScreen}
       />
-      <Stack.Screen 
-        name="Notifications" 
+      <Stack.Screen
+        name="JoinFamilyRequest"
+        component={JoinFamilyRequestScreen}
+      />
+      <Stack.Screen
+        name="FamilyJoinRequests"
+        component={FamilyJoinRequestsScreen}
+      />
+      <Stack.Screen
+        name="Notifications"
         component={NotificationsScreen}
       />
       <Stack.Screen 
