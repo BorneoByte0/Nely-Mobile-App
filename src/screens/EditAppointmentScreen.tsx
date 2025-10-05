@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Platform, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -75,7 +75,7 @@ const timeSlots = [
   '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM', '5:00 PM'
 ];
 
-export function EditAppointmentScreen({ navigation, route }: Props) {
+function EditAppointmentScreenComponent({ navigation, route }: Props) {
   const { language } = useLanguage();
   const { appointmentId } = route?.params || {};
   const { successConfig, visible, showSuccess, hideSuccess } = useSuccessAnimation();
@@ -92,6 +92,7 @@ export function EditAppointmentScreen({ navigation, route }: Props) {
   
   const [doctorName, setDoctorName] = useState('');
   const [clinic, setClinic] = useState('');
+
   const [appointmentType, setAppointmentType] = useState('');
   const [date, setDate] = useState(new Date());
   const [dateString, setDateString] = useState('');
@@ -169,7 +170,7 @@ export function EditAppointmentScreen({ navigation, route }: Props) {
   }, [currentAppointment, appointmentId]);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios');
+    setShowDatePicker(false); // Close picker on Android
     if (selectedDate) {
       setDate(selectedDate);
       setDateString(selectedDate.toISOString().split('T')[0]);
@@ -532,7 +533,7 @@ export function EditAppointmentScreen({ navigation, route }: Props) {
               <DateTimePicker
                 value={date}
                 mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                display="default"
                 onChange={handleDateChange}
                 minimumDate={new Date()}
               />
@@ -684,6 +685,9 @@ export function EditAppointmentScreen({ navigation, route }: Props) {
     </>
   );
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const EditAppointmentScreen = memo(EditAppointmentScreenComponent);
 
 const styles = StyleSheet.create({
   header: {

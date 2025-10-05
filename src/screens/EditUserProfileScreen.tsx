@@ -138,7 +138,7 @@ export function EditUserProfileScreen({ navigation, route }: Props) {
   ];
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios'); // Keep open on iOS, close on Android
+    setShowDatePicker(false); // Close picker on Android
     if (selectedDate) {
       const dateString = selectedDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
       updateFormData('dateOfBirth', dateString);
@@ -187,7 +187,6 @@ export function EditUserProfileScreen({ navigation, route }: Props) {
         preferred_language: language,
       };
 
-      console.log('Updating profile with:', profileData);
       const { error } = await updateUserProfile(profileData);
 
       if (!error) {
@@ -202,7 +201,6 @@ export function EditUserProfileScreen({ navigation, route }: Props) {
           duration: 800,
         });
       } else {
-        console.log('Profile update error:', error);
         throw error;
       }
     } catch (error) {
@@ -363,7 +361,7 @@ export function EditUserProfileScreen({ navigation, route }: Props) {
                     <DateTimePicker
                       value={new Date(formData.dateOfBirth)}
                       mode="date"
-                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      display="default"
                       onChange={handleDateChange}
                       maximumDate={new Date()}
                       minimumDate={new Date(1940, 0, 1)}

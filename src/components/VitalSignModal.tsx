@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
+import { usePermissions } from '../context/PermissionContext';
 import { useVitalSignsHistory } from '../hooks/useDatabase';
 
 const { width, height } = Dimensions.get('window');
@@ -42,6 +43,7 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
   elderlyId,
 }) => {
   const { language } = useLanguage();
+  const { canPerformAction } = usePermissions();
   const [slideAnim] = useState(new Animated.Value(height));
 
   // Fetch vital signs history for this elderly person
@@ -50,7 +52,6 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
   // Refetch history when modal becomes visible
   React.useEffect(() => {
     if (visible && elderlyId) {
-      console.log('🔄 VitalSignModal: Refetching history on modal open...');
       refetchHistory();
     }
   }, [visible, elderlyId]); // Removed refetchHistory from dependencies
@@ -226,7 +227,6 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
   // Debug logging
   React.useEffect(() => {
     if (visible) {
-      console.log('🔍 VitalSignModal Debug:', {
         elderlyId,
         vitalType,
         historyLoading,
@@ -391,23 +391,25 @@ export const VitalSignModal: React.FC<VitalSignModalProps> = ({
 
             {/* Action Buttons */}
             <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[styles.actionButton, styles.recordButton]}
-                onPress={() => {
-                  if (navigation) {
-                    onClose();
-                    navigation.navigate('RecordVitalReading');
-                  }
-                }}
-              >
+              {canPerformAction('record_vitals') && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.recordButton]}
+                  onPress={() => {
+                    if (navigation) {
+                      onClose();
+                      navigation.navigate('RecordVitalReading');
+                    }
+                  }}
+                >
                 <View style={styles.buttonContent}>
                   <Ionicons name="add-circle" size={20} color={colors.white} />
                   <Text style={styles.recordButtonText}>
                     {language === 'en' ? 'Record New Reading' : 'Rekod Bacaan Baru'}
                   </Text>
                 </View>
-              </TouchableOpacity>
-              
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity 
                 style={[styles.actionButton, styles.trendButton]}
                 onPress={() => {

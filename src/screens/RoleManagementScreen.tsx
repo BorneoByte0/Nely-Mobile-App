@@ -16,6 +16,8 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../context/PermissionContext';
 import { useModernAlert } from '../hooks/useModernAlert';
+import { useSuccessAnimation } from '../hooks/useSuccessAnimation';
+import { SuccessAnimation } from '../components/SuccessAnimation';
 import {
   useFamilyMembersWithRoles,
   useUpdateUserFamilyRole,
@@ -31,9 +33,11 @@ export function RoleManagementScreen({ navigation }: Props) {
   const { userProfile } = useAuth();
   const { canPerformAction } = usePermissions();
   const { alertConfig, visible, showAlert, hideAlert } = useModernAlert();
+  const { successConfig, visible: successVisible, showSuccess, hideSuccess } = useSuccessAnimation();
 
   const [selectedMemberRole, setSelectedMemberRole] = useState<{
     memberId: string;
+
     currentRole: string;
     newRole: string;
   } | null>(null);
@@ -174,9 +178,11 @@ export function RoleManagementScreen({ navigation }: Props) {
 
 
   const handleRoleChange = (memberId: string, currentRole: string, newRole: string) => {
+
     // Check if user is trying to remove their own admin role when they're the only admin
     const isCurrentUser = userProfile?.id === memberId;
     const adminCount = familyMembers?.filter(m => m.role === 'admin').length || 0;
+
 
     if (isCurrentUser && currentRole === 'admin' && newRole !== 'admin' && adminCount <= 1) {
       showAlert({
@@ -191,7 +197,9 @@ export function RoleManagementScreen({ navigation }: Props) {
     const member = familyMembers?.find(m => m.userId === memberId);
     if (!member) return;
 
-    setSelectedMemberRole({ memberId, currentRole, newRole });
+    const roleChangeData = { memberId, currentRole, newRole };
+    setSelectedMemberRole(roleChangeData);
+
 
     showAlert({
       type: 'warning',
@@ -205,28 +213,43 @@ export function RoleManagementScreen({ navigation }: Props) {
         {
           text: t.actions.confirm,
           style: 'primary',
-          onPress: confirmRoleChange
+          onPress: () => confirmRoleChange(roleChangeData)
         }
       ]
     });
   };
 
-  const confirmRoleChange = async () => {
-    if (!selectedMemberRole) return;
+  const confirmRoleChange = async (roleChangeData?: { memberId: string; currentRole: string; newRole: string }) => {
+    const dataToUse = roleChangeData || selectedMemberRole;
+
+    if (!dataToUse) {
+      return;
+    }
+
+
+    // Find the actual member to verify
+    const targetMember = familyMembers?.find(m => m.userId === dataToUse.memberId);
+
+    // Store the current selection to avoid state issues
+    const currentSelection = { ...dataToUse };
 
     hideAlert();
 
     try {
-      const success = await updateRole(selectedMemberRole.memberId, userProfile?.family_id || '', selectedMemberRole.newRole as any);
+      const success = await updateRole(currentSelection.memberId, userProfile?.family_id || '', currentSelection.newRole as any);
 
       if (success) {
-        showAlert({
-          type: 'success',
+        // Show success animation instead of alert
+        const member = familyMembers?.find(m => m.userId === currentSelection.memberId);
+        const newRoleName = t.roles[currentSelection.newRole as keyof typeof t.roles];
+
+        showSuccess({
           title: t.success.roleUpdated,
-          message: '',
-          buttons: [{ text: 'OK', style: 'default', onPress: hideAlert }]
+          message: `${member?.name} ${language === 'en' ? 'is now' : 'kini'} ${newRoleName}`,
+          onComplete: () => {
+            refetchMembers();
+          }
         });
-        refetchMembers();
       } else {
         showAlert({
           type: 'error',
@@ -244,6 +267,7 @@ export function RoleManagementScreen({ navigation }: Props) {
       });
     }
 
+    // Always reset the selected member role state
     setSelectedMemberRole(null);
   };
 
@@ -267,13 +291,15 @@ export function RoleManagementScreen({ navigation }: Props) {
   };
 
   const renderMemberCard = (member: any) => {
-    const isCurrentUser = userProfile?.id === member.user_id;
+    // Use consistent userId property (camelCase)
+    const memberUserId = member.userId || member.user_id;
+    const isCurrentUser = userProfile?.id === memberUserId;
     const rolePermissions = ROLE_PERMISSIONS[member.role as keyof typeof ROLE_PERMISSIONS] || {};
-    const isExpanded = expandedPermissions === member.user_id;
+    const isExpanded = expandedPermissions === memberUserId;
     const permissionCount = Object.values(rolePermissions).filter(Boolean).length;
 
     return (
-      <View key={member.user_id} style={styles.memberCard}>
+      <View key={memberUserId} style={styles.memberCard}>
         <View style={styles.memberHeader}>
           <View style={styles.memberInfo}>
             <Text style={styles.memberName}>
@@ -294,7 +320,7 @@ export function RoleManagementScreen({ navigation }: Props) {
 
         {/* Collapsible Permissions */}
         <View style={styles.permissionsContainer}>
-          <InteractiveFeedback onPress={() => togglePermissions(member.user_id)}>
+          <InteractiveFeedback onPress={() => togglePermissions(memberUserId)}>
             <View style={styles.permissionsHeader}>
               <View style={styles.permissionsInfo}>
                 <Text style={styles.permissionsTitle}>{t.permissions}</Text>
@@ -338,7 +364,9 @@ export function RoleManagementScreen({ navigation }: Props) {
               role !== member.role && (
                 <InteractiveFeedback
                   key={role}
-                  onPress={() => handleRoleChange(member.user_id, member.role, role)}
+                  onPress={() => {
+                    handleRoleChange(memberUserId, member.role, role);
+                  }}
                   disabled={updateLoading}
                 >
                   <View style={[styles.roleButton, { borderColor: getRoleColor(role) }]}>
@@ -448,6 +476,15 @@ export function RoleManagementScreen({ navigation }: Props) {
           message={alertConfig.message}
           buttons={alertConfig.buttons}
           onClose={hideAlert}
+        />
+      )}
+
+      {successConfig && (
+        <SuccessAnimation
+          visible={successVisible}
+          title={successConfig.title}
+          message={successConfig.message}
+          onComplete={hideSuccess}
         />
       )}
     </SafeAreaWrapper>

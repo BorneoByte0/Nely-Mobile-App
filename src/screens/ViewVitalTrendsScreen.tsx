@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +9,7 @@ import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
 import { hapticFeedback } from '../utils/haptics';
 import { useElderlyProfiles, useVitalSignsHistory } from '../hooks/useDatabase';
+import { CooldownManager } from '../utils/debounce';
 
 const { width } = Dimensions.get('window');
 const chartWidth = width - 80;
@@ -45,6 +46,7 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | '3months'>('week');
   const [selectedVital, setSelectedVital] = useState<string>(route?.params?.vitalType || 'bloodPressure');
 
+
   // Get current elderly profile and vital signs history
   const { elderlyProfiles, loading: profilesLoading, refetch: refetchProfiles } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
@@ -53,8 +55,14 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
   // Pull to refresh state
   const [refreshing, setRefreshing] = useState(false);
 
+  // Cooldown manager for pull-to-refresh
+  const cooldownManager = useRef(new CooldownManager(2000)).current;
+
   // Handle pull to refresh
   const handleRefresh = async () => {
+    if (!cooldownManager.canCall()) {
+      return;
+    }
     setRefreshing(true);
     try {
       // Trigger haptic feedback
@@ -66,7 +74,6 @@ export function ViewVitalTrendsScreen({ navigation, route }: Props) {
         refetchHistory?.()
       ]);
     } catch (error) {
-      console.error('Error refreshing data:', error);
     } finally {
       setRefreshing(false);
     }

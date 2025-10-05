@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 .env
+.env.production
+.env.development
+.env.test
 
 # typescript
 *.tsbuildinfo
@@ -66,3 +69,11 @@ coverage
 
 # Yarn Integrity file
 .yarn-integrity
+
+# Sensitive credentials and configs
+google-service-account.json
+AuthKey.p8
+credentials/
+secrets/
+*.keystore
+service-account-*.json

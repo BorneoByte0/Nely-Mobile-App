@@ -120,7 +120,7 @@ export function AddAppointmentScreen({ navigation }: Props) {
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios');
+    setShowDatePicker(false); // Close picker on Android
     if (selectedDate) {
       setDate(selectedDate);
       setDateString(selectedDate.toISOString().split('T')[0]);
@@ -387,7 +387,7 @@ export function AddAppointmentScreen({ navigation }: Props) {
               <DateTimePicker
                 value={date}
                 mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                display="default"
                 onChange={handleDateChange}
                 minimumDate={new Date()}
               />

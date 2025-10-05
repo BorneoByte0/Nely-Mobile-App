@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,6 +7,7 @@ import { InteractiveFeedback } from '../components/InteractiveFeedback';
 import { colors } from '../constants/colors';
 import { useLanguage } from '../context/LanguageContext';
 import { useElderlyProfiles } from '../hooks/useDatabase';
+import { CooldownManager } from '../utils/debounce';
 
 const { width } = Dimensions.get('window');
 
@@ -24,11 +25,18 @@ export function ViewAllTrendsScreen({ navigation, route }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState(route?.params?.selectedPeriod || 'week');
 
+
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading, error: profilesError } = useElderlyProfiles();
   const currentElderly = elderlyProfiles[0];
 
+  // Cooldown manager for pull-to-refresh
+  const cooldownManager = useRef(new CooldownManager(2000)).current;
+
   const onRefresh = async () => {
+    if (!cooldownManager.canCall()) {
+      return;
+    }
     setRefreshing(true);
     setTimeout(() => {
       setRefreshing(false);

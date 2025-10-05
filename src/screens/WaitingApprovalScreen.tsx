@@ -15,6 +15,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useCurrentUserJoinRequestStatus } from '../hooks/useDatabase';
 import { colors } from '../constants/colors';
+import { CooldownManager } from '../utils/debounce';
 
 interface WaitingApprovalScreenProps {
   onBackToAuth?: () => void;
@@ -34,6 +35,9 @@ export const WaitingApprovalScreen: React.FC<WaitingApprovalScreenProps> = ({
 
   // Animation for the waiting indicator
   const pulse = useRef(new Animated.Value(1)).current;
+
+  // Cooldown manager for pull-to-refresh
+  const cooldownManager = useRef(new CooldownManager(2000)).current;
 
   const texts = {
     en: {
@@ -111,6 +115,9 @@ export const WaitingApprovalScreen: React.FC<WaitingApprovalScreenProps> = ({
   }, [requestStatus, onApproved]);
 
   const handleRefresh = async () => {
+    if (!cooldownManager.canCall()) {
+      return;
+    }
     setRefreshing(true);
     await refetch();
     setRefreshing(false);

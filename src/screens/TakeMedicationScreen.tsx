@@ -11,6 +11,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { hapticFeedback } from '../utils/haptics';
 import { useElderlyProfiles, useRecordMedicationTaken, useUserProfile } from '../hooks/useDatabase';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 
 interface Props {
   navigation?: any;
@@ -25,8 +26,10 @@ interface Props {
 export function TakeMedicationScreen({ navigation, route }: Props) {
   const { language } = useLanguage();
   const { user } = useAuth();
+  const { sendFamilyUpdate } = useNotifications();
   const { medicationId, medicationName } = route?.params || {};
   const [isLoading, setIsLoading] = useState(false);
+
 
   // Database hooks
   const { elderlyProfiles } = useElderlyProfiles();
@@ -108,6 +111,17 @@ export function TakeMedicationScreen({ navigation, route }: Props) {
         setIsLoading(false);
         stopDotsAnimation();
         hapticFeedback.success();
+
+        // Send family notification about medication taken
+        try {
+          await sendFamilyUpdate(
+            'medication',
+            currentElderly.name,
+            takenBy,
+            `took ${medicationName}`
+          );
+        } catch (notificationError) {
+        }
 
         showSuccess({
           title: language === 'en' ? 'Medication Taken!' : 'Ubat Telah Diambil!',

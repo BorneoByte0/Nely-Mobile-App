@@ -13,6 +13,8 @@ import { useLanguage } from '../context/LanguageContext';
 import { hapticFeedback } from '../utils/haptics';
 import { useElderlyProfiles, useAddMedication } from '../hooks/useDatabase';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
+import { validateMedicationName, validateDosage, validateNotes } from '../utils/validation';
 
 interface Props {
   navigation: any;
@@ -31,7 +33,9 @@ interface MedicationForm {
 export function AddMedicationScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const { user } = useAuth();
+  const { sendFamilyUpdate, sendMedicationReminder } = useNotifications();
   const [isLoading, setIsLoading] = useState(false);
+
 
   // Database hooks
   const { elderlyProfiles } = useElderlyProfiles();
@@ -129,6 +133,36 @@ export function AddMedicationScreen({ navigation }: Props) {
       return;
     }
 
+    // Comprehensive validation
+    const nameValidation = validateMedicationName(formData.name);
+    if (!nameValidation.isValid) {
+      showError(
+        language === 'en' ? 'Invalid Medication Name' : 'Nama Ubat Tidak Sah',
+        nameValidation.error!
+      );
+      return;
+    }
+
+    const dosageValidation = validateDosage(formData.dosage);
+    if (!dosageValidation.isValid) {
+      showError(
+        language === 'en' ? 'Invalid Dosage' : 'Dos Tidak Sah',
+        dosageValidation.error!
+      );
+      return;
+    }
+
+    if (formData.notes) {
+      const notesValidation = validateNotes(formData.notes);
+      if (!notesValidation.isValid) {
+        showError(
+          language === 'en' ? 'Invalid Notes' : 'Catatan Tidak Sah',
+          notesValidation.error!
+        );
+        return;
+      }
+    }
+
     setIsLoading(true);
     startDotsAnimation();
     hapticFeedback.medium();
@@ -179,6 +213,21 @@ export function AddMedicationScreen({ navigation }: Props) {
         stopDotsAnimation();
         hapticFeedback.success();
 
+        // Send family notification about new medication added
+        try {
+          const addedBy = user?.email || 'System';
+          await sendFamilyUpdate(
+            'medication',
+            currentElderly.name,
+            addedBy,
+            `added new medication: ${formData.name}`
+          );
+
+          // Schedule medication reminders based on frequency
+          await scheduleMedicationReminders(formData.name, formData.frequency, currentElderly.name);
+        } catch (notificationError) {
+        }
+
         showSuccess({
           title: language === 'en' ? 'Medication Added!' : 'Ubat Ditambahkan!',
           message: language === 'en'
@@ -201,6 +250,68 @@ export function AddMedicationScreen({ navigation }: Props) {
           ? 'Unable to add medication. Please check your connection and try again.'
           : 'Tidak dapat menambah ubat. Sila semak sambungan anda dan cuba lagi.'
       );
+    }
+  };
+
+  // Helper function to schedule medication reminders based on frequency
+  const scheduleMedicationReminders = async (medicationName: string, frequency: string, elderlyName: string) => {
+    try {
+      const today = new Date();
+      const reminderTimes: Date[] = [];
+
+      // Parse frequency and determine reminder times
+      if (frequency.toLowerCase().includes('once') || frequency.toLowerCase().includes('daily')) {
+        // Once daily - schedule for 9 AM every day for the next 30 days
+        for (let i = 0; i < 30; i++) {
+          const reminderDate = new Date(today);
+          reminderDate.setDate(today.getDate() + i);
+          reminderDate.setHours(9, 0, 0, 0);
+          if (reminderDate > new Date()) {
+            reminderTimes.push(reminderDate);
+          }
+        }
+      } else if (frequency.toLowerCase().includes('twice')) {
+        // Twice daily - 9 AM and 9 PM for the next 30 days
+        for (let i = 0; i < 30; i++) {
+          const morningDate = new Date(today);
+          morningDate.setDate(today.getDate() + i);
+          morningDate.setHours(9, 0, 0, 0);
+
+          const eveningDate = new Date(today);
+          eveningDate.setDate(today.getDate() + i);
+          eveningDate.setHours(21, 0, 0, 0);
+
+          if (morningDate > new Date()) reminderTimes.push(morningDate);
+          if (eveningDate > new Date()) reminderTimes.push(eveningDate);
+        }
+      } else if (frequency.toLowerCase().includes('three')) {
+        // Three times daily - 8 AM, 2 PM, 8 PM for the next 30 days
+        for (let i = 0; i < 30; i++) {
+          const morning = new Date(today);
+          morning.setDate(today.getDate() + i);
+          morning.setHours(8, 0, 0, 0);
+
+          const afternoon = new Date(today);
+          afternoon.setDate(today.getDate() + i);
+          afternoon.setHours(14, 0, 0, 0);
+
+          const evening = new Date(today);
+          evening.setDate(today.getDate() + i);
+          evening.setHours(20, 0, 0, 0);
+
+          if (morning > new Date()) reminderTimes.push(morning);
+          if (afternoon > new Date()) reminderTimes.push(afternoon);
+          if (evening > new Date()) reminderTimes.push(evening);
+        }
+      }
+
+      // Schedule reminders (limit to first 10 to avoid overwhelming)
+      const limitedReminders = reminderTimes.slice(0, 10);
+      for (const time of limitedReminders) {
+        await sendMedicationReminder(medicationName, time, elderlyName);
+      }
+
+    } catch (error) {
     }
   };
 

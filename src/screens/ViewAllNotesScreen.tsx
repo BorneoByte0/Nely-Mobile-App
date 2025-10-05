@@ -61,7 +61,6 @@ export function ViewAllNotesScreen({ navigation }: Props) {
 
       // Check if date is valid
       if (isNaN(date.getTime())) {
-        console.log('Invalid date string:', dateString);
         return language === 'en' ? 'Invalid date' : 'Tarikh tidak sah';
       }
 
@@ -70,7 +69,6 @@ export function ViewAllNotesScreen({ navigation }: Props) {
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-      console.log('Date formatting:', { dateString, date, diffMinutes, diffHours, diffDays });
 
       if (diffMinutes < 1) return language === 'en' ? 'Just now' : 'Baru sahaja';
       if (diffMinutes < 60) return `${diffMinutes}m ${language === 'en' ? 'ago' : 'lalu'}`;
@@ -78,7 +76,6 @@ export function ViewAllNotesScreen({ navigation }: Props) {
 
       return `${diffDays}d ${language === 'en' ? 'ago' : 'lalu'}`;
     } catch (error) {
-      console.log('Error formatting time:', error, dateString);
       return language === 'en' ? 'Error' : 'Ralat';
     }
   };

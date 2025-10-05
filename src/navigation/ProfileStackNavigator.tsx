@@ -6,25 +6,27 @@ import { InviteFamilyMembersScreen } from '../screens/InviteFamilyMembersScreen'
 import { RoleManagementScreen } from '../screens/RoleManagementScreen';
 import { JoinFamilyRequestScreen } from '../screens/JoinFamilyRequestScreen';
 import { FamilyJoinRequestsScreen } from '../screens/FamilyJoinRequestsScreen';
-import { NotificationsScreen } from '../screens/NotificationsScreen';
+import { NotificationSettingsScreen } from '../screens/NotificationSettingsScreen';
 import { UnitsScreen } from '../screens/UnitsScreen';
 import { ReminderTimingsScreen } from '../screens/ReminderTimingsScreen';
 import { ContactSupportScreen } from '../screens/ContactSupportScreen';
 import { UserGuideScreen } from '../screens/UserGuideScreen';
 import { LanguageScreen } from '../screens/LanguageScreen';
 import { AddReminderScreen } from '../screens/AddReminderScreen';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const Stack = createStackNavigator();
 
 export function ProfileStackNavigator() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        gestureEnabled: true,
-        gestureDirection: 'horizontal',
-      }}
-    >
+    <ErrorBoundary>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+        }}
+      >
       <Stack.Screen 
         name="ProfileMain" 
         component={ProfileScreen}
@@ -51,7 +53,7 @@ export function ProfileStackNavigator() {
       />
       <Stack.Screen
         name="Notifications"
-        component={NotificationsScreen}
+        component={NotificationSettingsScreen}
       />
       <Stack.Screen 
         name="Units" 
@@ -78,5 +80,6 @@ export function ProfileStackNavigator() {
         component={AddReminderScreen}
       />
     </Stack.Navigator>
+    </ErrorBoundary>
   );
 }

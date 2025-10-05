@@ -25,7 +25,6 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onLoadingComplete })
           require('../../assets/welcome-onboarding-flow/slide-5.png'),
         ]);
       } catch (error) {
-        console.warn('Error preloading onboarding images:', error);
       }
     };
 

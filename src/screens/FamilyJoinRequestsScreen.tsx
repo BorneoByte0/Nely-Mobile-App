@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -25,6 +25,7 @@ import {
 import { colors } from '../constants/colors';
 import { HealthLoadingState } from '../components/HealthLoadingState';
 import { ErrorState } from '../components/ErrorState';
+import { CooldownManager } from '../utils/debounce';
 
 interface FamilyJoinRequestsScreenProps {
   navigation?: any;
@@ -52,6 +53,8 @@ export const FamilyJoinRequestsScreen: React.FC<FamilyJoinRequestsScreenProps> =
   } = useReviewFamilyJoinRequest();
 
   const [refreshing, setRefreshing] = useState(false);
+  const cooldownManager = useRef(new CooldownManager(2000)).current;
+
 
   const texts = {
     en: {
@@ -145,13 +148,17 @@ export const FamilyJoinRequestsScreen: React.FC<FamilyJoinRequestsScreenProps> =
   const t = texts[language];
 
   const onRefresh = useCallback(async () => {
+    if (!cooldownManager.canCall()) {
+      return;
+    }
+
     setRefreshing(true);
     try {
       await refetchRequests();
     } finally {
       setRefreshing(false);
     }
-  }, [refetchRequests]);
+  }, [refetchRequests, cooldownManager]);
 
   const formatTimeAgo = (dateString: string): string => {
     const now = new Date();
@@ -235,7 +242,6 @@ export const FamilyJoinRequestsScreen: React.FC<FamilyJoinRequestsScreenProps> =
         });
       }
     } catch (error) {
-      console.error('Error processing request:', error);
       showAlert({
         type: 'error',
         title: 'Error',

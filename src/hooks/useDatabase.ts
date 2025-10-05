@@ -1,8 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, Database } from '../lib/supabase';
 import type { FamilyRole, FamilyMemberWithRole } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { ElderlyProfile, VitalSigns, Medication, User, FamilyMember, Appointment, CareNote } from '../types';
+import { getFromCache, saveToCache, getCacheKey, CACHE_DURATION } from '../utils/cacheUtils';
+import { isOnline } from '../utils/networkUtils';
+
+// Database type exports for type safety
+type VitalSignsInsert = Database['public']['Tables']['vital_signs']['Insert'];
+type VitalSignsUpdate = Database['public']['Tables']['vital_signs']['Update'];
 
 // Hook for fetching user's family elderly profiles
 export const useElderlyProfiles = () => {
@@ -16,6 +22,31 @@ export const useElderlyProfiles = () => {
     try {
       setLoading(true);
       setError(null);
+
+      // Check if user has family_id
+      if (!user?.family_id) {
+        setElderlyProfiles([]);
+        setLoading(false);
+        return;
+      }
+
+      const cacheKey = getCacheKey.elderlyProfiles(user.family_id);
+
+      // Try to get cached data first
+      const cachedData = await getFromCache<ElderlyProfile[]>(cacheKey);
+      if (cachedData) {
+        setElderlyProfiles(cachedData);
+        setLoading(false);
+      }
+
+      // Check if online before making network request
+      const online = await isOnline();
+      if (!online && cachedData) {
+        // Use cached data if offline
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('elderly_profiles')
         .select('*')
@@ -23,6 +54,10 @@ export const useElderlyProfiles = () => {
 
       if (error) {
         setError(error.message);
+        // If we have cached data, keep showing it
+        if (!cachedData) {
+          setElderlyProfiles([]);
+        }
       } else {
         // Transform database data to match frontend types
         const profiles: ElderlyProfile[] = data.map(profile => ({
@@ -45,7 +80,11 @@ export const useElderlyProfiles = () => {
           clinicName: profile.clinic_name || undefined,
           emergencyContactPhone: profile.emergency_contact_phone || undefined,
         }));
+
         setElderlyProfiles(profiles);
+
+        // Save to cache
+        await saveToCache(cacheKey, profiles, CACHE_DURATION.MEDIUM);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -60,7 +99,6 @@ export const useElderlyProfiles = () => {
   }, [user, refetchTrigger]);
 
   const refetch = () => {
-    console.log('🔄 Refetching elderly profiles...');
     setRefetchTrigger(prev => prev + 1);
   };
 
@@ -79,6 +117,30 @@ export const useVitalSigns = (elderlyId: string) => {
     try {
       setLoading(true);
       setError(null);
+
+      if (!elderlyId) {
+        setVitalSigns(null);
+        setLoading(false);
+        return;
+      }
+
+      const cacheKey = getCacheKey.vitalSigns(elderlyId);
+
+      // Try to get cached data first
+      const cachedData = await getFromCache<VitalSigns>(cacheKey);
+      if (cachedData) {
+        setVitalSigns(cachedData);
+        setLoading(false);
+      }
+
+      // Check if online before making network request
+      const online = await isOnline();
+      if (!online && cachedData) {
+        // Use cached data if offline
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('vital_signs')
         .select('*')
@@ -88,6 +150,10 @@ export const useVitalSigns = (elderlyId: string) => {
 
       if (error) {
         setError(error.message);
+        // If we have cached data, keep showing it
+        if (!cachedData) {
+          setVitalSigns(null);
+        }
       } else if (data && data.length > 0) {
         const vital = data[0];
         // Transform database data to match frontend types
@@ -180,6 +246,9 @@ export const useVitalSigns = (elderlyId: string) => {
           notes: vital.notes || undefined,
         };
         setVitalSigns(vitalSigns);
+
+        // Save to cache (SHORT duration for real-time data)
+        await saveToCache(cacheKey, vitalSigns, CACHE_DURATION.SHORT);
       } else {
         setVitalSigns(null);
       }
@@ -196,7 +265,6 @@ export const useVitalSigns = (elderlyId: string) => {
   }, [elderlyId, user, refetchTrigger]);
 
   const refetch = () => {
-    console.log('🔄 Refetching vital signs...');
     setRefetchTrigger(prev => prev + 1);
   };
 
@@ -264,10 +332,12 @@ export const useRecordVitalSigns = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const recordVitalSigns = async (elderlyId: string, vitalData: any, recordedBy: string) => {
+  const recordVitalSigns = async (
+    elderlyId: string,
+    vitalData: Omit<VitalSignsInsert, 'elderly_id' | 'recorded_by'>,
+    recordedBy: string
+  ) => {
     try {
-      console.log('🏥 useRecordVitalSigns: Starting...');
-      console.log('📥 Received params:', { elderlyId, vitalData, recordedBy });
 
       setLoading(true);
       setError(null);
@@ -286,29 +356,24 @@ export const useRecordVitalSigns = () => {
         notes: vitalData.notes,
       };
 
-      console.log('💾 Insert data:', insertData);
 
       const { error: insertError } = await supabase
         .from('vital_signs')
         .insert(insertData);
 
       if (insertError) {
-        console.log('❌ Insert error:', insertError);
         setError(insertError.message);
         return false;
       }
 
-      console.log('✅ Vital signs insert successful!');
 
       // If there are notes, also create a care note
       if (vitalData.notes && vitalData.notes.trim()) {
-        console.log('📝 Creating care note for vital signs...');
 
         // Get the current user ID for author_id
         const { data: { user } } = await supabase.auth.getUser();
         const authorId = user?.id || 'unknown';
 
-        console.log('👤 Using author ID for care note:', authorId);
 
         const { error: careNoteError } = await supabase
           .from('care_notes')
@@ -322,16 +387,13 @@ export const useRecordVitalSigns = () => {
           });
 
         if (careNoteError) {
-          console.log('⚠️ Care note creation failed:', careNoteError);
           // Don't fail the whole operation if care note creation fails
         } else {
-          console.log('✅ Care note created successfully!');
         }
       }
 
       return true;
     } catch (err) {
-      console.log('🚨 Catch error:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       return false;
     } finally {
@@ -353,6 +415,30 @@ export const useMedications = (elderlyId: string) => {
     try {
       setLoading(true);
       setError(null);
+
+      if (!elderlyId) {
+        setMedications([]);
+        setLoading(false);
+        return;
+      }
+
+      const cacheKey = getCacheKey.medications(elderlyId);
+
+      // Try to get cached data first
+      const cachedData = await getFromCache<Medication[]>(cacheKey);
+      if (cachedData) {
+        setMedications(cachedData);
+        setLoading(false);
+      }
+
+      // Check if online before making network request
+      const online = await isOnline();
+      if (!online && cachedData) {
+        // Use cached data if offline
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('medications')
         .select('*')
@@ -361,6 +447,10 @@ export const useMedications = (elderlyId: string) => {
 
       if (error) {
         setError(error.message);
+        // If we have cached data, keep showing it
+        if (!cachedData) {
+          setMedications([]);
+        }
       } else {
         const meds: Medication[] = data.map(med => ({
           id: med.id,
@@ -375,6 +465,9 @@ export const useMedications = (elderlyId: string) => {
           isActive: med.is_active,
         }));
         setMedications(meds);
+
+        // Save to cache
+        await saveToCache(cacheKey, meds, CACHE_DURATION.MEDIUM);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -389,7 +482,6 @@ export const useMedications = (elderlyId: string) => {
   }, [elderlyId, refetchTrigger]);
 
   const refetch = () => {
-    console.log('🔄 Refetching medications...');
     setRefetchTrigger(prev => prev + 1);
   };
 
@@ -447,7 +539,7 @@ export const useUpdateMedication = () => {
       setLoading(true);
       setError(null);
 
-      const updateData: any = {};
+      const updateData: Record<string, string | boolean | null> = {};
       if (updates.name) updateData.name = updates.name;
       if (updates.dosage) updateData.dosage = updates.dosage;
       if (updates.frequency) updateData.frequency = updates.frequency;
@@ -541,6 +633,24 @@ export const useAppointments = (elderlyId: string) => {
       try {
         setLoading(true);
         setError(null);
+
+        const cacheKey = getCacheKey.appointments(elderlyId);
+
+        // Try to get cached data first
+        const cachedData = await getFromCache<Appointment[]>(cacheKey);
+        if (cachedData) {
+          setAppointments(cachedData);
+          setLoading(false);
+        }
+
+        // Check if online before making network request
+        const online = await isOnline();
+        if (!online && cachedData) {
+          // Use cached data if offline
+          setLoading(false);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('appointments')
           .select('*')
@@ -550,6 +660,10 @@ export const useAppointments = (elderlyId: string) => {
 
         if (error) {
           setError(error.message);
+          // If we have cached data, keep showing it
+          if (!cachedData) {
+            setAppointments([]);
+          }
         } else {
           const appts: Appointment[] = data.map(appt => ({
             id: appt.id,
@@ -564,6 +678,9 @@ export const useAppointments = (elderlyId: string) => {
             followUpRequired: appt.follow_up_required || false,
           }));
           setAppointments(appts);
+
+          // Save to cache
+          await saveToCache(cacheKey, appts, CACHE_DURATION.MEDIUM);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -576,7 +693,6 @@ export const useAppointments = (elderlyId: string) => {
   }, [elderlyId, refetchTrigger]);
 
   const refetch = () => {
-    console.log('🔄 Refetching appointments...');
     setRefetchTrigger(prev => prev + 1);
   };
 
@@ -595,6 +711,24 @@ export const useUpcomingAppointments = (elderlyId: string, limit = 5) => {
     const fetchUpcomingAppointments = async () => {
       try {
         setLoading(true);
+
+        const cacheKey = getCacheKey.upcomingAppointments(elderlyId);
+
+        // Try to get cached data first
+        const cachedData = await getFromCache<Appointment[]>(cacheKey);
+        if (cachedData) {
+          setAppointments(cachedData);
+          setLoading(false);
+        }
+
+        // Check if online before making network request
+        const online = await isOnline();
+        if (!online && cachedData) {
+          // Use cached data if offline
+          setLoading(false);
+          return;
+        }
+
         const today = new Date().toISOString().split('T')[0];
 
         const { data, error } = await supabase
@@ -609,6 +743,10 @@ export const useUpcomingAppointments = (elderlyId: string, limit = 5) => {
 
         if (error) {
           setError(error.message);
+          // If we have cached data, keep showing it
+          if (!cachedData) {
+            setAppointments([]);
+          }
         } else {
           const appts: Appointment[] = data.map(appt => ({
             id: appt.id,
@@ -623,6 +761,9 @@ export const useUpcomingAppointments = (elderlyId: string, limit = 5) => {
             followUpRequired: appt.follow_up_required || false,
           }));
           setAppointments(appts);
+
+          // Save to cache
+          await saveToCache(cacheKey, appts, CACHE_DURATION.MEDIUM);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -688,7 +829,7 @@ export const useUpdateAppointment = () => {
       setLoading(true);
       setError(null);
 
-      const updateData: any = {};
+      const updateData: Record<string, string | boolean | null> = {};
       if (updates.doctorName) updateData.doctor_name = updates.doctorName;
       if (updates.clinic) updateData.clinic = updates.clinic;
       if (updates.appointmentType) updateData.appointment_type = updates.appointmentType;
@@ -731,7 +872,29 @@ export const useCareNotes = (elderlyId: string) => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔍 Fetching care notes for elderly ID:', elderlyId);
+
+      if (!elderlyId) {
+        setCareNotes([]);
+        setLoading(false);
+        return;
+      }
+
+      const cacheKey = getCacheKey.careNotes(elderlyId);
+
+      // Try to get cached data first
+      const cachedData = await getFromCache<CareNote[]>(cacheKey);
+      if (cachedData) {
+        setCareNotes(cachedData);
+        setLoading(false);
+      }
+
+      // Check if online before making network request
+      const online = await isOnline();
+      if (!online && cachedData) {
+        // Use cached data if offline
+        setLoading(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('care_notes')
@@ -739,11 +902,13 @@ export const useCareNotes = (elderlyId: string) => {
         .eq('elderly_id', elderlyId)
         .order('date_created', { ascending: false });
 
-      console.log('🗂️ Care notes query result:', { data, error });
 
       if (error) {
-        console.log('❌ Care notes fetch error:', error);
         setError(error.message);
+        // If we have cached data, keep showing it
+        if (!cachedData) {
+          setCareNotes([]);
+        }
       } else {
         const notes: CareNote[] = data.map(note => ({
           id: note.id,
@@ -755,11 +920,12 @@ export const useCareNotes = (elderlyId: string) => {
           dateCreated: note.date_created,
           isImportant: note.is_important || false,
         }));
-        console.log('✅ Processed care notes:', notes);
         setCareNotes(notes);
+
+        // Save to cache
+        await saveToCache(cacheKey, notes, CACHE_DURATION.MEDIUM);
       }
     } catch (err) {
-      console.log('🚨 Care notes fetch exception:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
@@ -768,14 +934,12 @@ export const useCareNotes = (elderlyId: string) => {
 
   useEffect(() => {
     if (!elderlyId) {
-      console.log('⚠️ No elderly ID provided for care notes');
       return;
     }
     fetchCareNotes();
   }, [elderlyId, refetchTrigger]);
 
   const refetch = () => {
-    console.log('🔄 Refetching care notes...');
     setRefetchTrigger(prev => prev + 1);
   };
 
@@ -984,7 +1148,7 @@ export const useUpdateElderlyProfile = () => {
       setLoading(true);
       setError(null);
 
-      const updateData: any = {};
+      const updateData: Record<string, string | number | string[] | null> = {};
       if (updates.name) updateData.name = updates.name;
       if (updates.age) updateData.age = updates.age;
       if (updates.relationship) updateData.relationship = updates.relationship;
@@ -1112,7 +1276,7 @@ export interface AppointmentOutcome {
   diagnosis: string;
   doctorNotes: string;
   testResults?: string;
-  vitalSignsRecorded?: any;
+  vitalSignsRecorded?: Record<string, number | string | null>;
   newMedications?: string;
   medicationChanges?: string;
   prescriptions?: string;
@@ -1179,7 +1343,6 @@ export const useCreateAppointmentOutcome = () => {
         .eq('id', outcomeData.appointmentId);
 
       if (updateError) {
-        console.warn('Failed to update appointment status:', updateError.message);
       }
 
       return data;
@@ -1318,6 +1481,11 @@ export const useUserFamilyRole = () => {
           if (directRoleError || !directRoleData) {
             setRole('none');
           } else {
+              userId: user.id,
+              familyId: userData.family_id,
+              directRoleData,
+              detectedRole: directRoleData.role
+            });
             setRole(directRoleData.role as FamilyRole);
           }
         } else {
@@ -1327,7 +1495,16 @@ export const useUserFamilyRole = () => {
         setRole('none');
       } else {
         // The RPC function returns a string directly, not an object
-        setRole(roleData === 'none' ? 'none' : roleData as FamilyRole);
+        const detectedRole = roleData === 'none' ? 'none' : roleData as FamilyRole;
+          userId: user.id,
+          userEmail: user.email,
+          familyId: userData.family_id,
+          rawRoleData: roleData,
+          detectedRole,
+          roleType: typeof roleData,
+          allExpectedRoles: ['admin', 'carer', 'family_viewer', 'none']
+        });
+        setRole(detectedRole);
       }
       setError(null);
     } catch (err) {
@@ -1338,8 +1515,35 @@ export const useUserFamilyRole = () => {
     }
   };
 
+  // Listen to authentication state changes for user switching
   useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === 'SIGNED_OUT') {
+          setRole('none');
+          setLoading(false);
+          setError(null);
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          // Reset state and fetch new role for the new user
+          setRole('none');
+          setLoading(true);
+          setError(null);
+          fetchUserRole();
+        }
+      }
+    );
+
+    // Initial fetch
     fetchUserRole();
+
+    return () => subscription.unsubscribe();
+  }, [refetchTrigger]);
+
+  // Additional effect for manual refetch trigger
+  useEffect(() => {
+    if (refetchTrigger > 0) {
+      fetchUserRole();
+    }
   }, [refetchTrigger]);
 
   const refetch = useCallback(() => {
@@ -1377,12 +1581,11 @@ export const useFamilyMembersWithRoles = (familyId: string) => {
           .eq('is_active', true)
           .order('assigned_at', { ascending: true });
 
-        console.log('Family members query result:', { data, error });
 
         if (error) {
           setError(error.message);
         } else {
-          const formattedMembers: FamilyMemberWithRole[] = data.map((member: any) => ({
+          const formattedMembers: FamilyMemberWithRole[] = data.map((member) => ({
             userId: member.user_id,
             name: member.user_name || `User ${member.user_id.slice(0, 8)}...`,
             email: member.user_email || 'No email available',
@@ -1391,7 +1594,6 @@ export const useFamilyMembersWithRoles = (familyId: string) => {
             assignedAt: member.assigned_at,
             assignedByName: '', // We can add this later if needed
           }));
-          console.log('Formatted family members:', formattedMembers);
           setMembers(formattedMembers);
           setError(null);
         }
@@ -1432,22 +1634,27 @@ export const useUpdateUserFamilyRole = () => {
         return null;
       }
 
-      const { data, error: rpcError } = await supabase.rpc('update_user_family_role', {
+      const { data, error: rpcError } = await supabase.rpc('update_user_family_role_secure', {
         p_target_user_id: targetUserId,
         p_family_id: familyId,
-        p_new_role: newRole,
-        p_admin_user_id: user.id
+        p_new_role: newRole
       });
 
       if (rpcError) {
         setError(rpcError.message);
-        return null;
+        return false;
       }
 
-      return data;
+      // Check if the RPC function returned success
+      if (data && data.success) {
+        return true;
+      } else {
+        setError(data?.error || 'Unknown error occurred');
+        return false;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
-      return null;
+      return false;
     } finally {
       setLoading(false);
     }
@@ -1559,7 +1766,7 @@ export const useUpdateUserProfile = () => {
         return false;
       }
 
-      const updateData: any = {};
+      const updateData: Record<string, string | null> = {};
       if (updates.name) updateData.name = updates.name;
       if (updates.phone) updateData.phone = updates.phone;
       if (updates.preferredLanguage) updateData.preferred_language = updates.preferredLanguage;
@@ -1642,6 +1849,29 @@ export const useVitalSignsHistory = (elderlyId: string, period: 'week' | 'month'
         setLoading(true);
         setError(null);
 
+        if (!elderlyId) {
+          setVitalSignsHistory([]);
+          setLoading(false);
+          return;
+        }
+
+        const cacheKey = getCacheKey.vitalSignsHistory(elderlyId, period);
+
+        // Try to get cached data first
+        const cachedData = await getFromCache<any[]>(cacheKey);
+        if (cachedData) {
+          setVitalSignsHistory(cachedData);
+          setLoading(false);
+        }
+
+        // Check if online before making network request
+        const online = await isOnline();
+        if (!online && cachedData) {
+          // Use cached data if offline
+          setLoading(false);
+          return;
+        }
+
         // Calculate date range based on period
         const endDate = new Date();
         const startDate = new Date();
@@ -1668,6 +1898,10 @@ export const useVitalSignsHistory = (elderlyId: string, period: 'week' | 'month'
 
         if (error) {
           setError(error.message);
+          // If we have cached data, keep showing it
+          if (!cachedData) {
+            setVitalSignsHistory([]);
+          }
         } else {
           // Transform database data to trend format
           const history = data.map(vital => {
@@ -1701,6 +1935,9 @@ export const useVitalSignsHistory = (elderlyId: string, period: 'week' | 'month'
           });
 
           setVitalSignsHistory(history);
+
+          // Save to cache (SHORT duration for time-series data)
+          await saveToCache(cacheKey, history, CACHE_DURATION.SHORT);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -1751,9 +1988,6 @@ export const useCreateFamilyJoinRequest = () => {
       setLoading(true);
       setError(null);
 
-      console.log('Creating join request with RPC function');
-      console.log('Family code:', familyCode);
-      console.log('Message:', message);
 
       // Use the RPC function to create join request
       const { data: result, error: rpcError } = await supabase
@@ -1762,24 +1996,19 @@ export const useCreateFamilyJoinRequest = () => {
           p_request_message: message
         });
 
-      console.log('RPC result:', { result, rpcError });
 
       if (rpcError) {
-        console.log('RPC error:', rpcError);
         setError(rpcError.message);
         return null;
       }
 
       if (result && result.success) {
-        console.log('Join request created successfully');
         return result;
       } else {
-        console.log('Join request failed:', result);
         setError(result?.error || 'Failed to create join request');
         return null;
       }
     } catch (err) {
-      console.error('Create join request error:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       return null;
     } finally {
@@ -1819,7 +2048,6 @@ export const useReviewFamilyJoinRequest = () => {
         });
 
       if (rpcError) {
-        console.error('Review join request error:', rpcError);
         setError(rpcError.message || 'Failed to review request');
         return false;
       }
@@ -1857,7 +2085,6 @@ export const usePendingJoinRequests = (familyId: string) => {
         setLoading(true);
 
         // Get join requests with cached user data
-        console.log('Fetching join requests for familyId:', familyId);
         const { data: joinRequestsData, error: joinRequestsError } = await supabase
           .from('family_join_requests')
           .select(`
@@ -1876,21 +2103,18 @@ export const usePendingJoinRequests = (familyId: string) => {
           .order('requested_at', { ascending: false });
 
         if (joinRequestsError) {
-          console.error('Error fetching join requests:', joinRequestsError);
           setError(joinRequestsError.message);
           return;
         }
 
         if (!joinRequestsData || joinRequestsData.length === 0) {
-          console.log('No pending join requests found');
           setRequests([]);
           return;
         }
 
-        console.log('Found join requests with user data:', joinRequestsData);
 
         // Map the data directly since we have cached user info
-        const formattedRequests: FamilyJoinRequest[] = joinRequestsData.map((req: any) => ({
+        const formattedRequests: FamilyJoinRequest[] = joinRequestsData.map((req) => ({
           id: req.id,
           familyId: req.family_id,
           familyCode: req.family_code,
@@ -1904,7 +2128,6 @@ export const usePendingJoinRequests = (familyId: string) => {
           expiresAt: '',
         }));
 
-        console.log('Final formatted requests:', formattedRequests);
         setRequests(formattedRequests);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -1941,10 +2164,8 @@ export const useValidateFamilyCode = () => {
       const { data: validationResult, error: rpcError } = await supabase
         .rpc('validate_family_code_for_join', { family_code_param: familyCode });
 
-      console.log('Family validation result:', { validationResult, rpcError });
 
       if (rpcError) {
-        console.log('RPC validation failed:', rpcError);
         return { isValid: false, error: 'Validation failed. Please try again.' };
       }
 
@@ -1972,26 +2193,21 @@ export const useCurrentUserJoinRequestStatus = () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔄 Fetching join request status...');
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.log('❌ No authenticated user found');
         setStatus('none');
         setData(null);
         return;
       }
 
-      console.log('👤 User ID:', user.id);
 
       // Use RPC function to bypass RLS policies completely
       const { data: joinRequestResult, error: requestError } = await supabase
         .rpc('get_user_join_request_status_detailed', { p_user_id: user.id });
 
-      console.log('📡 RPC Response:', { joinRequestResult, requestError });
 
       if (requestError) {
-        console.log('❌ Error fetching join request status:', requestError);
         setError(requestError.message);
         setStatus('none');
         setData(null);
@@ -1999,7 +2215,6 @@ export const useCurrentUserJoinRequestStatus = () => {
       }
 
       if (joinRequestResult && joinRequestResult.has_request) {
-        console.log('✅ Found join request:', joinRequestResult.status);
         setStatus(joinRequestResult.status);
         setData({
           requestId: joinRequestResult.request_id,
@@ -2011,12 +2226,10 @@ export const useCurrentUserJoinRequestStatus = () => {
           reviewMessage: joinRequestResult.review_message,
         });
       } else {
-        console.log('🚫 No join request found or RPC returned null');
         setStatus('none');
         setData(null);
       }
     } catch (err) {
-      console.error('Error in useCurrentUserJoinRequestStatus:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       setStatus('none');
       setData(null);

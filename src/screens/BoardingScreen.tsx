@@ -39,7 +39,6 @@ export const BoardingScreen: React.FC<BoardingScreenProps> = ({
   React.useEffect(() => {
     const ensureUserProfile = async () => {
       if (user && !userProfile) {
-        console.log('Creating user profile for boarding...');
         await createUserProfile({
           name: user.email?.split('@')[0] || 'User',
           role: 'not elderly',

@@ -18,36 +18,39 @@ import { ViewUpcomingAppointmentsScreen } from '../screens/ViewUpcomingAppointme
 import { CompletedAppointmentsScreen } from '../screens/CompletedAppointmentsScreen';
 import { AddNotesScreen } from '../screens/AddNotesScreen';
 import { ViewAllNotesScreen } from '../screens/ViewAllNotesScreen';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const Stack = createStackNavigator();
 
 export function FamilyStackNavigator() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        gestureEnabled: true,
-        gestureDirection: 'horizontal',
-      }}
-    >
-      <Stack.Screen name="FamilyMain" component={FamilyScreen} />
-      <Stack.Screen name="EditElderlyProfile" component={EditElderlyProfileScreen} />
-      <Stack.Screen name="RecordVitalReading" component={RecordVitalReadingScreen} />
-      <Stack.Screen name="ViewVitalTrends" component={ViewVitalTrendsScreen} />
-      <Stack.Screen name="ManageMedications" component={ManageMedicationsScreen} />
-      <Stack.Screen name="AddMedication" component={AddMedicationScreen} />
-      <Stack.Screen name="EditMedication" component={EditMedicationScreen} />
-      <Stack.Screen name="TakeMedication" component={TakeMedicationScreen} />
-      <Stack.Screen name="RecentMedicationActivity" component={RecentMedicationActivityScreen} />
-      <Stack.Screen name="ManageAppointments" component={ManageAppointmentsScreen} />
-      <Stack.Screen name="AppointmentCompleted" component={AppointmentCompletedScreen} />
-      <Stack.Screen name="AppointmentOutcome" component={AppointmentOutcomeScreen} />
-      <Stack.Screen name="EditAppointment" component={EditAppointmentScreen} />
-      <Stack.Screen name="AddAppointment" component={AddAppointmentScreen} />
-      <Stack.Screen name="ViewUpcomingAppointments" component={ViewUpcomingAppointmentsScreen} />
-      <Stack.Screen name="CompletedAppointments" component={CompletedAppointmentsScreen} />
-      <Stack.Screen name="AddNote" component={AddNotesScreen} />
-      <Stack.Screen name="ViewAllNotes" component={ViewAllNotesScreen} />
-    </Stack.Navigator>
+    <ErrorBoundary>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+        }}
+      >
+        <Stack.Screen name="FamilyMain" component={FamilyScreen} />
+        <Stack.Screen name="EditElderlyProfile" component={EditElderlyProfileScreen} />
+        <Stack.Screen name="RecordVitalReading" component={RecordVitalReadingScreen} />
+        <Stack.Screen name="ViewVitalTrends" component={ViewVitalTrendsScreen} />
+        <Stack.Screen name="ManageMedications" component={ManageMedicationsScreen} />
+        <Stack.Screen name="AddMedication" component={AddMedicationScreen} />
+        <Stack.Screen name="EditMedication" component={EditMedicationScreen} />
+        <Stack.Screen name="TakeMedication" component={TakeMedicationScreen} />
+        <Stack.Screen name="RecentMedicationActivity" component={RecentMedicationActivityScreen} />
+        <Stack.Screen name="ManageAppointments" component={ManageAppointmentsScreen} />
+        <Stack.Screen name="AppointmentCompleted" component={AppointmentCompletedScreen} />
+        <Stack.Screen name="AppointmentOutcome" component={AppointmentOutcomeScreen} />
+        <Stack.Screen name="EditAppointment" component={EditAppointmentScreen} />
+        <Stack.Screen name="AddAppointment" component={AddAppointmentScreen} />
+        <Stack.Screen name="ViewUpcomingAppointments" component={ViewUpcomingAppointmentsScreen} />
+        <Stack.Screen name="CompletedAppointments" component={CompletedAppointmentsScreen} />
+        <Stack.Screen name="AddNote" component={AddNotesScreen} />
+        <Stack.Screen name="ViewAllNotes" component={ViewAllNotesScreen} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   );
 }

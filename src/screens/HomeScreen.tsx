@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Animated, BackHandler } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,6 +14,7 @@ import { useModernAlert } from '../hooks/useModernAlert';
 import { hapticFeedback } from '../utils/haptics';
 import { useElderlyProfiles, useVitalSigns, useUserProfile, useMedications, useCareNotes, useMedicationTaken } from '../hooks/useDatabase';
 import { useAuth } from '../context/AuthContext';
+import { usePermissions } from '../context/PermissionContext';
 
 // Activity Details Modal Component
 function ActivityDetailsModal({
@@ -572,9 +573,10 @@ function getMedicationType(medicationName: string): string {
   return 'general';
 }
 
-export function HomeScreen({ navigation }: Props) {
+function HomeScreenComponent({ navigation }: Props) {
   const { texts, language } = useLanguage();
   const { user } = useAuth();
+  const { canPerformAction } = usePermissions();
   const { alertConfig, visible, showAlert, hideAlert, showSuccess, showError, showWarning, showInfo } = useModernAlert();
   const [activityModalVisible, setActivityModalVisible] = useState(false);
   const [medicationModalVisible, setMedicationModalVisible] = useState(false);
@@ -599,13 +601,19 @@ export function HomeScreen({ navigation }: Props) {
   const { careNotes, loading: notesLoading, error: notesError, refetch: refetchCareNotes } = useCareNotes(currentElderly?.id || '');
   const { medicationTaken, loading: medicationTakenLoading, error: medicationTakenError, refetch: refetchMedicationTaken } = useMedicationTaken(currentElderly?.id || '');
 
-  // Filter to only show active medications for HomeScreen
-  const medications = allMedications.filter(med => med.isActive);
+  // Filter to only show active medications for HomeScreen - memoized for performance
+  const medications = useMemo(() =>
+    allMedications.filter(med => med.isActive),
+    [allMedications]
+  );
 
-  // Show loading if any critical data is still loading
-  const isDataLoading = elderlyLoading || userLoading || vitalsLoading || medicationsLoading;
+  // Show loading if any critical data is still loading - memoized for performance
+  const isDataLoading = useMemo(() =>
+    elderlyLoading || userLoading || vitalsLoading || medicationsLoading,
+    [elderlyLoading, userLoading, vitalsLoading, medicationsLoading]
+  );
 
-  // Simplified auto-refresh: only refresh on focus, skip initial mount
+  // Refresh on focus
   useFocusEffect(
     useCallback(() => {
       // Skip refresh on initial mount, only refresh on subsequent focuses
@@ -721,9 +729,41 @@ export function HomeScreen({ navigation }: Props) {
     if (!navigation) {
       showError(
         language === 'en' ? 'Navigation Error' : 'Ralat Navigasi',
-        language === 'en' 
+        language === 'en'
           ? 'Unable to navigate. Please restart the app.'
           : 'Tidak dapat menavigasi. Sila mulakan semula aplikasi.'
+      );
+      return;
+    }
+
+    // Check permissions before allowing actions
+    let requiredPermission: string;
+    let actionName: string;
+
+    switch (action) {
+      case 'vitals':
+        requiredPermission = 'record_vitals';
+        actionName = language === 'en' ? 'record vital signs' : 'merekod tanda vital';
+        break;
+      case 'medicine':
+        requiredPermission = 'take_medication';
+        actionName = language === 'en' ? 'record medication intake' : 'merekod pengambilan ubat';
+        break;
+      case 'note':
+        requiredPermission = 'add_care_note';
+        actionName = language === 'en' ? 'add care notes' : 'menambah nota penjagaan';
+        break;
+      default:
+        throw new Error('Invalid action');
+    }
+
+    // Check if user has permission
+    if (!canPerformAction(requiredPermission)) {
+      showWarning(
+        language === 'en' ? 'Access Restricted' : 'Akses Terhad',
+        language === 'en'
+          ? `You don't have permission to ${actionName}. Only Admin and Carer roles can perform this action.`
+          : `Anda tidak mempunyai kebenaran untuk ${actionName}. Hanya peranan Admin dan Penjaga boleh melakukan tindakan ini.`
       );
       return;
     }
@@ -745,7 +785,7 @@ export function HomeScreen({ navigation }: Props) {
     } catch (error) {
       showError(
         language === 'en' ? 'Action Failed' : 'Tindakan Gagal',
-        language === 'en' 
+        language === 'en'
           ? 'Unable to perform this action. Please try again.'
           : 'Tidak dapat melakukan tindakan ini. Sila cuba lagi.'
       );
@@ -1267,6 +1307,9 @@ function formatLastUpdated(dateString: string): string {
     return `${days} day${days > 1 ? 's' : ''} ago`;
   }
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const HomeScreen = memo(HomeScreenComponent);
 
 const styles = StyleSheet.create({
   container: {

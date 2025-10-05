@@ -4,6 +4,7 @@ import { Animated } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as ExpoSplashScreen from 'expo-splash-screen';
 import { BottomTabNavigator } from './src/navigation/BottomTabNavigator';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { SplashScreen } from './src/screens/SplashScreen';
@@ -17,7 +18,16 @@ import { WaitingApprovalScreen } from './src/screens/WaitingApprovalScreen';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { PermissionProvider } from './src/context/PermissionContext';
+import { NotificationProvider } from './src/context/NotificationContext';
 import { useCurrentUserJoinRequestStatus } from './src/hooks/useDatabase';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { OfflineBanner } from './src/components/OfflineBanner';
+
+// Prevent Expo's default splash screen from auto-hiding
+// We'll hide it manually when our custom splash is complete
+ExpoSplashScreen.preventAutoHideAsync().catch(() => {
+  // Ignore errors if splash screen is already hidden or not available
+});
 
 type AppState = 'loading' | 'onboarding' | 'auth' | 'verify' | 'createProfile' | 'boarding' | 'createFamily' | 'joinRequest' | 'waitingApproval' | 'authenticated';
 
@@ -50,52 +60,29 @@ function AppContent() {
   }, [fadeAnim]);
 
   useEffect(() => {
-    console.log('🚦 Navigation Logic Check:', {
-      loading,
-      joinRequestLoading,
-      splashCompleted,
-      appState,
-      isAuthenticated,
-      hasCompletedProfileSetup,
-      hasCompletedBoarding,
-      joinRequestStatus,
-    });
-
     // Only transition from loading state if both auth loading is done AND splash is completed
     if (!loading && !joinRequestLoading && splashCompleted && appState === 'loading') {
-      console.log('✅ All loading complete, determining navigation...');
-
       if (isAuthenticated && user) {
-        console.log('👤 User authenticated, checking profile and boarding status...');
-
         // Check for pending join requests first (highest priority)
         if (joinRequestStatus === 'pending') {
-          console.log('⏳ Pending join request found, going to waitingApproval');
           animateStateTransition(() => setAppState('waitingApproval'));
         } else if (joinRequestStatus === 'approved') {
-          console.log('✅ Join request approved, going to authenticated');
           // User was approved, go to main app
           animateStateTransition(() => setAppState('authenticated'));
         } else if (!hasCompletedProfileSetup) {
-          console.log('📝 Profile not complete, going to createProfile');
           // User authenticated but hasn't completed profile setup
           animateStateTransition(() => setAppState('createProfile'));
         } else if (hasCompletedBoarding) {
-          console.log('🏠 Boarding complete, no pending requests, going to authenticated');
           // User has completed everything and no pending requests - go to main app
           animateStateTransition(() => setAppState('authenticated'));
         } else {
-          console.log('🚪 Profile complete but boarding not done, going to boarding');
           // User has profile but hasn't completed boarding - send to boarding screen
           animateStateTransition(() => setAppState('boarding'));
         }
       } else {
-        console.log('🔐 User not authenticated, checking first time user...');
         if (isFirstTimeUser) {
-          console.log('👋 First time user, going to onboarding');
           animateStateTransition(() => setAppState('onboarding'));
         } else {
-          console.log('🔑 Returning user, going to auth');
           animateStateTransition(() => setAppState('auth'));
         }
       }
@@ -112,6 +99,10 @@ function AppContent() {
 
   const handleSplashComplete = useCallback(() => {
     setSplashCompleted(true);
+    // Hide the Expo default splash screen now that our custom splash is complete
+    ExpoSplashScreen.hideAsync().catch(() => {
+      // Ignore errors if splash screen is already hidden
+    });
     // The actual state transition will be handled by useEffect
     // when both splash is complete and auth loading is done
   }, []);
@@ -290,6 +281,7 @@ function AppContent() {
 
   return (
     <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+      <OfflineBanner />
       {renderCurrentScreen}
     </Animated.View>
   );
@@ -297,17 +289,21 @@ function AppContent() {
 
 export default function App() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <AuthProvider>
-          <PermissionProvider>
-            <LanguageProvider>
-              <AppContent />
-              <StatusBar style="auto" />
-            </LanguageProvider>
-          </PermissionProvider>
-        </AuthProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <AuthProvider>
+            <PermissionProvider>
+              <NotificationProvider>
+                <LanguageProvider>
+                  <AppContent />
+                  <StatusBar style="auto" />
+                </LanguageProvider>
+              </NotificationProvider>
+            </PermissionProvider>
+          </AuthProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }

@@ -8,30 +8,32 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "scheme": "com.nely.app",
+    "primaryColor": "#10B981",
+    "backgroundColor": "#FFFFFF",
+    "description": "Nely Healthcare Management - Complete family healthcare companion for Malaysian families. Manage medications, track vital signs, schedule appointments, and stay connected with your loved ones' health journey.",
     "splash": {
       "image": "./assets/nely-splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.nely.app",
-      "infoPlist": {
-        "CFBundleURLTypes": [
-          {
-            "CFBundleURLName": "Nely OAuth",
-            "CFBundleURLSchemes": ["com.nely.app"]
-          }
-        ]
-      }
+      "backgroundColor": "#10B981"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon-nely.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#10B981"
+      },
+      "splash": {
+        "backgroundColor": "#10B981",
+        "resizeMode": "contain",
+        "image": "./assets/nely-splash.png"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.nely.app",
+      "versionCode": 1,
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK",
+        "VIBRATE"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -40,16 +42,32 @@
               "scheme": "com.nely.app"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
-      ]
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
+      ],
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=com.nely.app"
     },
     "plugins": [
       "expo-asset",
-      "expo-web-browser"
-    ]
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon-nely.png",
+          "color": "#10B981",
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-font"
+    ],
+    "owner": "borneobyte0",
+    "extra": {
+      "eas": {
+        "projectId": "bc4b34b7-2cc7-4f5a-913a-316705ac06c6"
+      }
+    }
   }
 }

@@ -39,6 +39,7 @@ export function AppointmentOutcomeScreen({ navigation, route }: Props) {
 
   const [diagnosis, setDiagnosis] = useState('');
   const [doctorNotes, setDoctorNotes] = useState('');
+
   const [testResults, setTestResults] = useState('');
   const [newMedications, setNewMedications] = useState('');
   const [recommendations, setRecommendations] = useState('');

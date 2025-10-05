@@ -44,7 +44,18 @@ export const PermissionProvider = ({ children }: PermissionProviderProps) => {
   const { role: familyRole, loading: roleLoading } = useUserFamilyRole();
 
   const permissions = useMemo(() => {
-    return ROLE_PERMISSIONS[familyRole] || ROLE_PERMISSIONS.none;
+    const calculatedPermissions = ROLE_PERMISSIONS[familyRole] || ROLE_PERMISSIONS.none;
+      familyRole,
+      roleLoading,
+      calculatedPermissions,
+      timestamp: new Date().toISOString(),
+      contextReset: familyRole === 'none' ? 'RESET' : 'ACTIVE',
+      allRolePermissions: ROLE_PERMISSIONS,
+      isAdmin: familyRole === 'admin',
+      isCarer: familyRole === 'carer',
+      isViewer: familyRole === 'family_viewer'
+    });
+    return calculatedPermissions;
   }, [familyRole]);
 
   const isAdmin = familyRole === 'admin';
@@ -85,11 +96,19 @@ export const PermissionProvider = ({ children }: PermissionProviderProps) => {
 
     const permissionKey = actionMap[action];
     if (permissionKey) {
-      return hasPermission(permissionKey);
+      const result = hasPermission(permissionKey);
+        action,
+        permissionKey,
+        result,
+        familyRole,
+        permissionValue: permissions[permissionKey],
+        allPermissions: permissions,
+        hasPermissionFunction: hasPermission.toString()
+      });
+      return result;
     }
 
     // Default to false for unknown actions
-    console.warn(`Unknown action: ${action}`);
     return false;
   };
 

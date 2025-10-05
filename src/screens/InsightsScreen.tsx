@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +9,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { useElderlyProfiles, useVitalSigns, useMedications, useAppointments, useNotes, useMedicationTaken } from '../hooks/useDatabase';
 import { HealthLoadingState } from '../components/HealthLoadingState';
 import { ErrorState } from '../components/ErrorState';
+import { CooldownManager } from '../utils/debounce';
 
 const { width } = Dimensions.get('window');
 
@@ -20,6 +21,10 @@ export function InsightsScreen({ navigation }: Props = {}) {
   const { language } = useLanguage();
   const [selectedPeriod, setSelectedPeriod] = useState('week');
   const [refreshing, setRefreshing] = useState(false);
+
+
+  // Pull-to-refresh cooldown (2 seconds)
+  const cooldownManager = useRef(new CooldownManager(2000)).current;
 
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading, error: profilesError, refetch: refetchElderlyProfiles } = useElderlyProfiles();
@@ -41,7 +46,11 @@ export function InsightsScreen({ navigation }: Props = {}) {
   const upcomingAppointments = appointments.filter(apt => apt.status === 'upcoming');
 
   const onRefresh = async () => {
-    console.log('🔄 Starting insights screen refresh...');
+    // Rate limiting: Prevent refresh if called within 2 seconds
+    if (!cooldownManager.canCall()) {
+      return;
+    }
+
     setRefreshing(true);
     try {
       // Refetch the main data sources we have refetch functions for
@@ -50,10 +59,8 @@ export function InsightsScreen({ navigation }: Props = {}) {
         refetchVitalSigns(),
       ]);
 
-      console.log('✅ Insights screen refresh completed successfully');
       setRefreshing(false);
     } catch (error) {
-      console.log('❌ Insights screen refresh error:', error);
       setRefreshing(false);
     }
   };

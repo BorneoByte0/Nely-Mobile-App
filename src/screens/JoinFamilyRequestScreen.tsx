@@ -230,7 +230,6 @@ export const JoinFamilyRequestScreen: React.FC<JoinFamilyRequestScreenProps> = (
         });
       }
     } catch (error) {
-      console.error('Join request error:', error);
       showAlert({
         type: 'error',
         title: t.error.title,

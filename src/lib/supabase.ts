@@ -2,29 +2,36 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logger } from '../utils/logger';
 
 // Supabase configuration
-// Replace these with your actual Supabase project URL and anon key
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'YOUR_SUPABASE_URL';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
+// Environment variables must be set via EAS Secrets for production builds
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-// Debug logging for environment variables
-console.log('Supabase URL:', supabaseUrl);
-console.log('Supabase Key:', supabaseAnonKey ? 'loaded' : 'missing');
+// Validate required environment variables
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    'Missing required Supabase configuration. ' +
+    'Please ensure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are set.'
+  );
+}
 
-// Test database connection
-const testConnection = async () => {
-  try {
-    const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
-    console.log('Database connection test:', error ? 'FAILED' : 'SUCCESS');
-    if (error) console.log('Connection error:', error.message);
-  } catch (err) {
-    console.log('Database connection test: FAILED', err);
-  }
-};
+// Development-only: Test database connection
+if (__DEV__) {
+  const testConnection = async () => {
+    try {
+      const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
+      logger.debug('Database connection test:', error ? 'FAILED' : 'SUCCESS');
+      if (error) logger.debug('Connection error:', error.message);
+    } catch (err) {
+      logger.debug('Database connection test: FAILED', err);
+    }
+  };
 
-// Run test after a short delay
-setTimeout(testConnection, 1000);
+  // Run test after a short delay
+  setTimeout(testConnection, 1000);
+}
 
 // Create Supabase client with React Native optimizations
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -38,17 +45,29 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     headers: {
       'X-Client-Info': 'supabase-js-react-native',
     },
+    fetch: (url, options = {}) => {
+      // Set timeout for all network requests (30 seconds)
+      const timeout = 30000;
+
+      return Promise.race([
+        fetch(url, options),
+        new Promise<Response>((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout after 30 seconds')), timeout)
+        ),
+      ]);
+    },
   },
 });
 
-// Add debugging for auth state changes
-supabase.auth.onAuthStateChange((event, session) => {
-  console.log('Supabase auth state change:', event);
-  if (session) {
-    console.log('Session user ID:', session.user.id);
-    console.log('Session expires at:', new Date(session.expires_at! * 1000));
-  }
-});
+// Development-only: Debug auth state changes
+if (__DEV__) {
+  supabase.auth.onAuthStateChange((event, session) => {
+    logger.debug('Supabase auth state change:', event);
+    if (session) {
+      logger.debug('Session established, expires at:', new Date(session.expires_at! * 1000));
+    }
+  });
+}
 
 // Database table type definitions based on our schema
 export interface Database {
@@ -61,7 +80,7 @@ export interface Database {
           name: string;
           email: string;
           phone: string | null;
-          role: 'elderly' | 'caregiver';
+          role: 'elderly' | 'not elderly';
           preferred_language: 'en' | 'ms';
           avatar: string | null;
           is_active: boolean;
@@ -73,7 +92,7 @@ export interface Database {
           name: string;
           email: string;
           phone?: string | null;
-          role: 'elderly' | 'caregiver';
+          role: 'elderly' | 'not elderly';
           preferred_language?: 'en' | 'ms';
           avatar?: string | null;
           is_active?: boolean;
@@ -85,7 +104,7 @@ export interface Database {
           name?: string;
           email?: string;
           phone?: string | null;
-          role?: 'elderly' | 'caregiver';
+          role?: 'elderly' | 'not elderly';
           preferred_language?: 'en' | 'ms';
           avatar?: string | null;
           is_active?: boolean;

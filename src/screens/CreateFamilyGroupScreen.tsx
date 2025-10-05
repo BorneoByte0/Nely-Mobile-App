@@ -49,12 +49,10 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching user profile:', error);
         return null;
       }
       return data;
     } catch (error) {
-      console.error('Error fetching user profile:', error);
       return null;
     }
   };
@@ -312,9 +310,6 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
       // Generate a random 6-digit family code
       const familyCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-      console.log('Creating family with code:', familyCode);
-      console.log('AuthContext user ID:', user?.id);
-      console.log('AuthContext user email:', user?.email);
 
       // 1. Create family group in database
       // Get the current session to ensure we have the right user ID for RLS
@@ -323,7 +318,6 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
         throw new Error('No active session found');
       }
 
-      console.log('Using user ID for family creation:', session.user.id);
 
       // Test if we can access the users table (should work with RLS)
       const { data: testUsers, error: testError } = await supabase
@@ -331,10 +325,8 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
         .select('id')
         .eq('id', session.user.id);
 
-      console.log('User table access test:', { testUsers, testError });
 
       // Test: Try to create family group with explicit user ID that matches auth.uid()
-      console.log('About to insert family group with user ID:', session.user.id);
 
       // Use secure RPC function to create family group
       const { data: rpcResult, error: rpcError } = await supabase.rpc('create_family_group_secure', {
@@ -346,19 +338,15 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
         p_elderly_care_level: careLevel
       });
 
-      console.log('Secure RPC result:', { rpcResult, rpcError });
 
       if (rpcError) {
-        console.error('RPC function error:', rpcError);
         throw new Error(`RPC failed: ${rpcError.message}`);
       }
 
       if (!rpcResult.success) {
-        console.error('RPC function returned error:', rpcResult.error);
         throw new Error(`Family creation failed: ${rpcResult.error}`);
       }
 
-      console.log('Family creation completed successfully:', rpcResult);
 
       // The RPC function has already created the family group, elderly profile, and updated the user
       // Just refresh the user profile to reflect the changes in our local state
@@ -366,7 +354,6 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
       if (updatedSession?.user) {
         const updatedProfile = await fetchUserProfile(updatedSession.user.id);
         if (updatedProfile) {
-          console.log('Updated user profile with family_id:', updatedProfile.family_id);
         }
       }
 
@@ -384,7 +371,6 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
       });
 
     } catch (error) {
-      console.error('Family creation failed:', error);
       setIsLoading(false);
 
       showAlert({
@@ -402,8 +388,8 @@ export const CreateFamilyGroupScreen: React.FC<CreateFamilyGroupScreenProps> = (
     <SafeAreaWrapper gradientVariant="onboarding">
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        behavior="height"
+        keyboardVerticalOffset={20}
       >
         <ScrollView
           contentContainerStyle={styles.contentContainer}

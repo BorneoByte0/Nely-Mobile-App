@@ -1,24 +1,31 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Session, User } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
+import { Session, User, AuthError } from '@supabase/supabase-js';
+import { supabase, Database } from '../lib/supabase';
 import type { FamilyRole } from '../types';
+import { logger } from '../utils/logger';
+
+// User profile type from database schema
+export type UserProfile = Database['public']['Tables']['users']['Row'];
+
+// User profile update type
+export type UserProfileUpdate = Database['public']['Tables']['users']['Update'];
+
+// User profile creation type
+export type UserProfileInsert = Database['public']['Tables']['users']['Insert'];
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
-  userProfile: any | null;
+  userProfile: UserProfile | null;
   familyRole: FamilyRole | 'none';
   isAdmin: boolean;
   isLoading: boolean;
   roleLoading: boolean;
-  signIn: (email: string, password: string) => Promise<{error: any}>;
-  signUp: (email: string, password: string, userData: any) => Promise<{error: any}>;
-  signInWithGoogle: () => Promise<{error: any}>;
+  signIn: (email: string, password: string) => Promise<{error: AuthError | null}>;
+  signUp: (email: string, password: string, userData: UserProfileInsert) => Promise<{error: AuthError | Error | null}>;
   signOut: () => Promise<void>;
-  updateUserProfile: (updates: any) => Promise<{error: any}>;
-  createUserProfile: (userData: any) => Promise<{error: any}>;
+  updateUserProfile: (updates: UserProfileUpdate) => Promise<{error: Error | null}>;
+  createUserProfile: (userData: UserProfileInsert) => Promise<{error: Error | null}>;
   refreshFamilyRole: () => Promise<void>;
   isAuthenticated: boolean;
   hasCompletedProfileSetup: boolean;
@@ -44,7 +51,7 @@ interface AuthProviderProps {
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [userProfile, setUserProfile] = useState<any | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [familyRole, setFamilyRole] = useState<FamilyRole | 'none'>('none');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -62,16 +69,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (error) {
         // If user profile doesn't exist (PGRST116), that's expected for new users
         if (error.code === 'PGRST116') {
-          console.log('User profile not found - user needs to complete boarding');
           return null;
         }
-        console.error('Error fetching user profile:', error);
         return null;
       }
 
       return data;
     } catch (error) {
-      console.error('Error fetching user profile:', error);
       return null;
     }
   };
@@ -116,7 +120,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setIsAdmin(role === 'admin');
       }
     } catch (error) {
-      console.error('Error fetching family role:', error);
       setFamilyRole('none');
       setIsAdmin(false);
     } finally {
@@ -163,7 +166,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
+      logger.debug('Auth state changed:', event);
       setSession(session);
       setUser(session?.user ?? null);
 
@@ -193,145 +196,103 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error };
-  };
-
-  const signUp = async (email: string, password: string, userData: any) => {
-    console.log('Attempting signup for:', email);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: userData,
-      },
-    });
-
-    console.log('Signup result:', { data: data?.user?.id, error: error?.message });
-
-    if (!error && data.user) {
-      // Create user profile in our users table
-      console.log('Creating user profile for:', data.user.id);
-      const { data: profileData, error: profileError } = await supabase.from('users').insert({
-        id: data.user.id,
-        name: userData.name,
-        email: email,
-        phone: userData.phone,
-        role: userData.role || 'not elderly',
-        preferred_language: userData.language || 'en',
-      });
-
-      console.log('Profile creation result:', { profileData, error: profileError?.message });
-    }
-
-    return { error };
-  };
-
-  const signInWithGoogle = async () => {
     try {
-      // Configure WebBrowser for authentication
-      WebBrowser.maybeCompleteAuthSession();
-
-      const redirectUri = AuthSession.makeRedirectUri({
-        scheme: 'com.nely.app',
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      console.log('Redirect URI:', redirectUri);
-
-      // Create the auth request
-      const request = new AuthSession.AuthRequest({
-        clientId: '215870229724-a215kti872ttje24nbgh9fa1hkvavqvd.apps.googleusercontent.com',
-        scopes: ['openid', 'profile', 'email'],
-        redirectUri,
-        responseType: AuthSession.ResponseType.Code,
-      });
-
-      // Open browser for authentication
-      const result = await request.promptAsync({
-        authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-      });
-
-      console.log('Auth result:', result);
-
-      if (result.type === 'success') {
-        // Exchange code for token
-        const tokenResult = await AuthSession.exchangeCodeAsync(
-          {
-            code: result.params.code,
-            clientId: '215870229724-a215kti872ttje24nbgh9fa1hkvavqvd.apps.googleusercontent.com',
-            redirectUri,
-            extraParams: {},
-          },
-          {
-            tokenEndpoint: 'https://oauth2.googleapis.com/token',
-          }
-        );
-
-        if (tokenResult.accessToken) {
-          // Get user profile from Google
-          const userResponse = await fetch(
-            `https://www.googleapis.com/oauth2/v2/userinfo?access_token=${tokenResult.accessToken}`
-          );
-          const userData = await userResponse.json();
-
-          console.log('Google user data:', userData);
-
-          if (userData.email) {
-            // For now, show success message and handle manually
-            // This requires Supabase to have proper Google OAuth configured
-            // Alternative: Use magic link or handle OAuth tokens properly
-
-            // Try to sign in with OAuth token directly
-            const { error } = await supabase.auth.signInWithIdToken({
-              provider: 'google',
-              token: tokenResult.idToken || tokenResult.accessToken,
-            });
-
-            if (error) {
-              // Fallback: Show that Google sign-in worked but needs backend setup
-              console.log('Google OAuth successful, but Supabase integration needs setup');
-              console.log('User data:', userData);
-              return {
-                error: new Error('Google Sign-In successful! However, the backend integration is not fully configured. Please contact support or use email/password authentication.')
-              };
-            }
-
-            return { error: null };
-          } else {
-            return { error: new Error('Could not get user email from Google') };
-          }
-        } else {
-          return { error: new Error('Failed to get access token') };
-        }
-      } else if (result.type === 'cancel') {
-        return { error: new Error('Google Sign-In was cancelled') };
-      } else {
-        return { error: new Error('Google Sign-In failed') };
-      }
+      return { error };
     } catch (error) {
-      console.error('Google Sign-In error:', error);
-      return { error: error instanceof Error ? error : new Error('Unknown Google Sign-In error') };
+      return { error: error instanceof Error ? error : new Error('Failed to sign in') };
     }
   };
+
+  const signUp = async (email: string, password: string, userData: UserProfileInsert) => {
+    try {
+      // Step 1: Create auth user
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: userData,
+        },
+      });
+
+      if (error) {
+        return { error };
+      }
+
+      if (!data.user) {
+        return { error: new Error('Signup succeeded but no user data returned') };
+      }
+
+      // Step 2: Create user profile in our users table with retry logic
+      const maxRetries = 3;
+      let lastError: any = null;
+
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const { error: profileError } = await supabase.from('users').insert({
+          id: data.user.id,
+          name: userData.name,
+          email: email,
+          phone: userData.phone,
+          role: userData.role || 'not elderly',
+          preferred_language: userData.language || 'en',
+        });
+
+        if (!profileError) {
+          // Success! Profile created
+          return { error: null };
+        }
+
+        lastError = profileError;
+
+        // If it's a duplicate key error, the profile already exists (should not happen, but safe)
+        if (profileError.code === '23505') {
+          return { error: null };
+        }
+
+        // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500 * Math.pow(2, attempt)));
+        }
+      }
+
+      // All retries failed - log the user out to prevent orphaned auth state
+      // The orphaned auth user will be in the system but cannot be used
+      // Database cleanup can be done via admin panel or scheduled task
+      await supabase.auth.signOut();
+
+      return {
+        error: new Error(
+          `Account creation failed after ${maxRetries} attempts. Please try signing up again. If the problem persists, contact support.`
+        )
+      };
+
+    } catch (error) {
+      return { error: error instanceof Error ? error : new Error('Failed to sign up') };
+    }
+  };
+
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Error signing out:', error.message);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      throw error instanceof Error ? error : new Error('Failed to sign out');
     }
   };
 
-  const updateUserProfile = async (updates: any) => {
+  const updateUserProfile = async (updates: UserProfileUpdate) => {
     try {
       if (!user?.id) {
-        console.log('updateUserProfile: User not authenticated');
         return { error: new Error('User not authenticated') };
       }
 
-      console.log('updateUserProfile: Updating user', user.id, 'with data:', updates);
 
       const { data, error } = await supabase
         .from('users')
@@ -341,21 +302,18 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         .single();
 
       if (error) {
-        console.error('updateUserProfile: Database error:', error);
         return { error };
       }
 
-      console.log('updateUserProfile: Success, updated profile:', data);
       // Update local profile state
       setUserProfile(data);
       return { error: null };
     } catch (error) {
-      console.error('updateUserProfile: Exception:', error);
       return { error };
     }
   };
 
-  const createUserProfile = async (userData: any) => {
+  const createUserProfile = async (userData: UserProfileInsert) => {
     try {
       if (!user?.id) {
         return { error: new Error('User not authenticated') };
@@ -375,7 +333,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         .single();
 
       if (error) {
-        console.error('Error creating user profile:', error);
         return { error };
       }
 
@@ -383,7 +340,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setUserProfile(data);
       return { error: null };
     } catch (error) {
-      console.error('Error creating user profile:', error);
       return { error };
     }
   };
@@ -399,7 +355,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     roleLoading,
     signIn,
     signUp,
-    signInWithGoogle,
     signOut,
     updateUserProfile,
     createUserProfile,

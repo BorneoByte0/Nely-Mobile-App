@@ -27,7 +27,7 @@ interface AuthScreenProps {
 
 export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   const { texts, language } = useLanguage();
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp } = useAuth();
   const { alertConfig, visible, showError, showSuccess, hideAlert } = useModernAlert();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -37,25 +37,6 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  const handleGoogleAuth = async () => {
-    setIsLoading(true);
-    try {
-      const { error } = await signInWithGoogle();
-      setIsLoading(false);
-
-      if (error) {
-        showError(texts.auth.error, error.message || 'Google Sign-In failed');
-      } else {
-        // Don't call onAuthSuccess here - let the AuthContext handle the actual authentication
-        // The auth state change will be detected automatically by App.tsx
-        console.log('Google Sign-In initiated - waiting for authentication...');
-      }
-    } catch (err) {
-      setIsLoading(false);
-      showError(texts.auth.error, 'An unexpected error occurred');
-    }
-  };
 
   const handleEmailAuth = async () => {
     if (isLogin) {
@@ -135,7 +116,7 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
     >
       <LanguageToggle position="topRight" size="small" />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="height"
         style={styles.keyboardContainer}
       >
         <ScrollView contentContainerStyle={styles.scrollContainer}>
@@ -252,28 +233,6 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 )}
               </LinearGradient>
             </InteractiveFeedback>
-
-            {/* Google Auth Button (Login only) */}
-            {isLogin && (
-              <InteractiveFeedback onPress={handleGoogleAuth} disabled={isLoading}>
-                <View style={styles.googleButton}>
-                  {isLoading ? (
-                    <LoadingDots />
-                  ) : (
-                    <View style={styles.buttonContent}>
-                      <Ionicons
-                        name="logo-google"
-                        size={20}
-                        color={colors.primary}
-                      />
-                      <Text style={styles.googleButtonText}>
-                        Sign in with Google
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </InteractiveFeedback>
-            )}
 
           </View>
         </ScrollView>

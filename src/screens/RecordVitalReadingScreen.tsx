@@ -13,6 +13,16 @@ import { useModernAlert } from '../hooks/useModernAlert';
 import { hapticFeedback } from '../utils/haptics';
 import { useElderlyProfiles, useRecordVitalSigns, useUserProfile } from '../hooks/useDatabase';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
+import {
+  validateBloodPressure,
+  validateSpO2,
+  validatePulse,
+  validateTemperature,
+  validateWeight,
+  validateBloodGlucose,
+  validateNotes,
+} from '../utils/validation';
 
 interface VitalSignsForm {
   systolic: string;
@@ -32,9 +42,11 @@ interface Props {
 export function RecordVitalReadingScreen({ navigation }: Props) {
   const { language } = useLanguage();
   const { user } = useAuth();
+  const { sendHealthAlert, sendFamilyUpdate } = useNotifications();
   const { alertConfig, visible: alertVisible, showAlert, hideAlert, showError } = useModernAlert();
   const [isLoading, setIsLoading] = useState(false);
   const { successConfig, visible, showSuccess, hideSuccess } = useSuccessAnimation();
+
 
   // Database hooks
   const { elderlyProfiles, loading: profilesLoading } = useElderlyProfiles();
@@ -95,15 +107,9 @@ export function RecordVitalReadingScreen({ navigation }: Props) {
   });
 
   const handleSave = async () => {
-    console.log('=== VITAL SIGNS SAVE STARTED ===');
-    console.log('Form data:', formData);
-    console.log('Current elderly:', currentElderly);
-    console.log('User profile:', userProfile);
-    console.log('User:', user);
 
     // Basic validation
     if (!formData.systolic || !formData.diastolic) {
-      console.log('❌ Validation failed: Missing blood pressure');
       showError(
         language === 'en' ? 'Missing Information' : 'Maklumat Hilang',
         language === 'en'
@@ -114,7 +120,6 @@ export function RecordVitalReadingScreen({ navigation }: Props) {
     }
 
     if (!currentElderly) {
-      console.log('❌ Validation failed: No elderly profile');
       showError(
         language === 'en' ? 'Error' : 'Ralat',
         language === 'en'
@@ -124,7 +129,84 @@ export function RecordVitalReadingScreen({ navigation }: Props) {
       return;
     }
 
-    console.log('✅ Validation passed');
+    // Comprehensive validation
+    const systolic = parseInt(formData.systolic);
+    const diastolic = parseInt(formData.diastolic);
+    const bpValidation = validateBloodPressure(systolic, diastolic);
+    if (!bpValidation.isValid) {
+      showError(
+        language === 'en' ? 'Invalid Blood Pressure' : 'Tekanan Darah Tidak Sah',
+        bpValidation.error!
+      );
+      return;
+    }
+
+    if (formData.spO2) {
+      const spo2Validation = validateSpO2(parseFloat(formData.spO2));
+      if (!spo2Validation.isValid) {
+        showError(
+          language === 'en' ? 'Invalid SpO2' : 'SpO2 Tidak Sah',
+          spo2Validation.error!
+        );
+        return;
+      }
+    }
+
+    if (formData.pulse) {
+      const pulseValidation = validatePulse(parseInt(formData.pulse));
+      if (!pulseValidation.isValid) {
+        showError(
+          language === 'en' ? 'Invalid Pulse' : 'Nadi Tidak Sah',
+          pulseValidation.error!
+        );
+        return;
+      }
+    }
+
+    if (formData.temperature) {
+      const tempValidation = validateTemperature(parseFloat(formData.temperature), 'celsius');
+      if (!tempValidation.isValid) {
+        showError(
+          language === 'en' ? 'Invalid Temperature' : 'Suhu Tidak Sah',
+          tempValidation.error!
+        );
+        return;
+      }
+    }
+
+    if (formData.weight) {
+      const weightValidation = validateWeight(parseFloat(formData.weight), 'kg');
+      if (!weightValidation.isValid) {
+        showError(
+          language === 'en' ? 'Invalid Weight' : 'Berat Tidak Sah',
+          weightValidation.error!
+        );
+        return;
+      }
+    }
+
+    if (formData.bloodGlucose) {
+      const glucoseValidation = validateBloodGlucose(parseFloat(formData.bloodGlucose), 'mmol');
+      if (!glucoseValidation.isValid) {
+        showError(
+          language === 'en' ? 'Invalid Blood Glucose' : 'Glukosa Darah Tidak Sah',
+          glucoseValidation.error!
+        );
+        return;
+      }
+    }
+
+    if (formData.notes) {
+      const notesValidation = validateNotes(formData.notes);
+      if (!notesValidation.isValid) {
+        showError(
+          language === 'en' ? 'Invalid Notes' : 'Catatan Tidak Sah',
+          notesValidation.error!
+        );
+        return;
+      }
+    }
+
     setIsLoading(true);
     startDotsAnimation();
     hapticFeedback.medium();
@@ -150,19 +232,19 @@ export function RecordVitalReadingScreen({ navigation }: Props) {
       };
 
       const recordedBy = userProfile?.name || user?.email || 'Unknown';
-      console.log('📝 Prepared vital data:', vitalData);
-      console.log('👤 Recorded by:', recordedBy);
-      console.log('🆔 Elderly ID:', currentElderly.id);
 
-      console.log('🚀 Calling recordVitalSigns...');
       const success = await recordVitalSigns(currentElderly.id, vitalData, recordedBy);
-      console.log('📊 recordVitalSigns result:', success);
 
       if (success) {
-        console.log('🎉 Success! Showing success animation...');
         setIsLoading(false);
         stopDotsAnimation();
         hapticFeedback.success();
+
+        // Check for concerning vital signs and send health alerts
+        await checkAndSendHealthAlerts(vitalData, currentElderly.name, recordedBy);
+
+        // Send family activity update
+        await sendFamilyUpdate('vitals', currentElderly.name, recordedBy, 'recorded vital signs');
 
         showSuccess({
           title: language === 'en' ? 'Success!' : 'Berjaya!',
@@ -170,7 +252,6 @@ export function RecordVitalReadingScreen({ navigation }: Props) {
             ? 'Vital signs recorded successfully!'
             : 'Tanda vital berjaya direkodkan!',
           onComplete: () => {
-            console.log('🔙 Navigating back...');
             navigation.goBack();
           },
           duration: 800,
@@ -189,6 +270,72 @@ export function RecordVitalReadingScreen({ navigation }: Props) {
           ? 'Unable to record vital signs. Please check your connection and try again.'
           : 'Tidak dapat merekod tanda vital. Sila semak sambungan anda dan cuba lagi.'
       );
+    }
+  };
+
+  // Function to check vital signs and send health alerts if needed
+  const checkAndSendHealthAlerts = async (vitalData: any, elderlyName: string, recordedBy: string) => {
+    try {
+
+      // Check blood pressure
+      if (vitalData.bloodPressure) {
+        const { systolic, diastolic } = vitalData.bloodPressure;
+        if (systolic >= 180 || diastolic >= 110) {
+          // Critical
+          await sendHealthAlert('critical', 'Blood Pressure', `${systolic}/${diastolic} mmHg`, elderlyName, recordedBy);
+        } else if (systolic >= 140 || diastolic >= 90 || systolic < 90 || diastolic < 60) {
+          // Concerning
+          await sendHealthAlert('concerning', 'Blood Pressure', `${systolic}/${diastolic} mmHg`, elderlyName, recordedBy);
+        }
+      }
+
+      // Check SpO2
+      if (vitalData.spO2?.value) {
+        const spO2 = vitalData.spO2.value;
+        if (spO2 < 90) {
+          // Critical
+          await sendHealthAlert('critical', 'Blood Oxygen', `${spO2}%`, elderlyName, recordedBy);
+        } else if (spO2 < 95) {
+          // Concerning
+          await sendHealthAlert('concerning', 'Blood Oxygen', `${spO2}%`, elderlyName, recordedBy);
+        }
+      }
+
+      // Check pulse
+      if (vitalData.pulse?.value) {
+        const pulse = vitalData.pulse.value;
+        if (pulse > 120 || pulse < 50) {
+          // Concerning pulse
+          await sendHealthAlert('concerning', 'Heart Rate', `${pulse} bpm`, elderlyName, recordedBy);
+        }
+      }
+
+      // Check temperature
+      if (vitalData.temperature?.value) {
+        const temp = vitalData.temperature.value;
+        if (temp >= 39) {
+          // High fever - critical
+          await sendHealthAlert('critical', 'Temperature', `${temp}°C`, elderlyName, recordedBy);
+        } else if (temp >= 37.5 || temp <= 35) {
+          // Fever or low temperature - concerning
+          await sendHealthAlert('concerning', 'Temperature', `${temp}°C`, elderlyName, recordedBy);
+        }
+      }
+
+      // Check blood glucose
+      if (vitalData.bloodGlucose?.value) {
+        const glucose = vitalData.bloodGlucose.value;
+        if (glucose > 15 || glucose < 3) {
+          // Critical glucose levels
+          await sendHealthAlert('critical', 'Blood Glucose', `${glucose} mmol/L`, elderlyName, recordedBy);
+        } else if (glucose > 11 || glucose < 4) {
+          // Concerning glucose levels
+          await sendHealthAlert('concerning', 'Blood Glucose', `${glucose} mmol/L`, elderlyName, recordedBy);
+        }
+      }
+
+    } catch (error) {
+      // Don't throw - we don't want to fail the vital signs recording just because notifications failed
     }
   };
 
